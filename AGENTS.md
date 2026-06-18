@@ -16,8 +16,7 @@ MSYS2 package history into `msys2-uwp/msys2-uwp`.
 - **Strategy**: deterministic date-ordered replay; same SHAs on every rebuild at same pins
 - **Triggers**: GitHub Actions every 5 minutes (poll upstream SHAs) + daily reconciliation
 - **Runtime**: PowerShell 7+ (`pwsh`); scripts must work on Windows, Linux, and macOS
-- **State**: `.sync/state.json` in this repo tracks replay cursors (not in destination)
-- **Manifest**: `.sync/replay-manifest.json` records expected destination tip for verify/rebuild
+- **State**: `.sync/state.json` tracks cursors and manifest (verify/rebuild)
 
 ## Do not
 
@@ -32,7 +31,6 @@ MSYS2 package history into `msys2-uwp/msys2-uwp`.
 |------|----------|
 | Sync logic | `scripts/Sync-*.ps1`, `scripts/lib/` |
 | Config | `config/sync.json` |
-| Replay cursors | `.sync/state.json` (this repo, committed) |
-| Expected tip / verify | `.sync/replay-manifest.json` |
+| Replay cursors + manifest | `.sync/state.json` (this repo, committed) |
 | CI | `.github/workflows/` |
 | Design changes | update `docs/PLAN.md` first |

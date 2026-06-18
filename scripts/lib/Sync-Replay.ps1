@@ -3,7 +3,6 @@
 . "$PSScriptRoot/Sync-Common.ps1"
 . "$PSScriptRoot/Sync-Config.ps1"
 . "$PSScriptRoot/Sync-State.ps1"
-. "$PSScriptRoot/Sync-Manifest.ps1"
 . "$PSScriptRoot/Sync-GitHub.ps1"
 . "$PSScriptRoot/Sync-Git.ps1"
 
@@ -157,7 +156,7 @@ function Start-ReplaySync {
             $replayed++
             if ($index % 100 -eq 0) {
                 Write-SyncLog "Progress: $index / $($queue.Count) ($replayed replayed)"
-                $state.destinationBranchTip = Get-DestinationBranchTip -DestinationPath $destPath -BranchName $branch
+                $state.manifest.destinationTipSha = Get-DestinationBranchTip -DestinationPath $destPath -BranchName $branch
                 Save-SyncState -RepoRoot $RepoRoot -State $state
             }
         }
@@ -168,7 +167,6 @@ function Start-ReplaySync {
 
     if (-not $DryRun) {
         Update-LastUpstreamCheck -State $state -Tips $upstreamTips
-        $state.destinationBranchTip = $tipSha
         $state.lastSyncAt = (Get-Date).ToUniversalTime().ToString('o')
     }
 
@@ -201,7 +199,7 @@ function Complete-ReplaySync {
         return
     }
 
-    $manifest = New-ReplayManifest `
+    $manifest = New-ReplayManifestSnapshot `
         -Config $Result.Config `
         -UpstreamPins $Result.UpstreamTips `
         -CommitCount 0 `
@@ -214,7 +212,7 @@ function Complete-ReplaySync {
     $manifest.commitCount = [int]$countOutput
 
     if ($Mode -eq 'Rebuild') {
-        $existing = Get-ReplayManifest -RepoRoot $RepoRoot
+        $existing = $Result.State.manifest
         if ($existing.destinationTipSha) {
             $compare = Compare-ReplayManifest -Expected $existing -Actual $manifest
             if (-not $compare.Match) {
@@ -224,8 +222,7 @@ function Complete-ReplaySync {
         }
     }
 
-    Save-ReplayManifest -RepoRoot $RepoRoot -Manifest $manifest
-    $Result.State.replayManifestSha = Get-ManifestContentHash -RepoRoot $RepoRoot
+    Update-StateManifest -State $Result.State -Manifest $manifest
     Save-SyncState -RepoRoot $RepoRoot -State $Result.State
 
     if ($PushDestination -and ($Result.CommitsReplayed -gt 0 -or $Mode -eq 'Rebuild')) {
@@ -238,7 +235,7 @@ function Complete-ReplaySync {
     }
 
     if ($PushState) {
-        Write-SyncLog 'State and manifest updated locally (push from CI).'
+        Write-SyncLog 'State updated locally (push from CI).'
     }
 
     Write-SyncLog "Sync complete; replayed $($Result.CommitsReplayed) commits; tip=$($Result.DestinationTipSha)"
@@ -251,7 +248,8 @@ function Invoke-RebuildVerify {
         [switch] $DryRun
     )
 
-    $expected = Get-ReplayManifest -RepoRoot $RepoRoot
+    $state = Get-SyncState -RepoRoot $RepoRoot
+    $expected = $state.manifest
     if (-not $expected.destinationTipSha) {
         Write-SyncLog 'No prior manifest tip recorded; running rebuild without compare.' -Level Warn
     }
@@ -263,7 +261,7 @@ function Invoke-RebuildVerify {
         -BranchName "upstream-verify-$(Get-Date -Format 'yyyyMMddHHmmss')" `
         -DryRun:$DryRun
 
-    $actual = New-ReplayManifest `
+    $actual = New-ReplayManifestSnapshot `
         -Config $result.Config `
         -UpstreamPins $result.UpstreamTips `
         -CommitCount 0 `

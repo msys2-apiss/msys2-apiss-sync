@@ -161,19 +161,18 @@ Source: <upstream-repo>@<upstream-full-sha>
 2. Reset branch `upstream` to `destination.baseCommit` (or create `upstream`
    pointing at base if missing). For verify-only, use `upstream-verify-<id>`.
 3. Run the same replay loop as bootstrap with deterministic rules above.
-4. Compute manifest (see below); compare to `.sync/replay-manifest.json`.
+4. Compute manifest (see below); compare to `state.json` `manifest` section.
 5. On match: force-push `upstream` and update state.
 6. On mismatch: fail; do not push (algorithm bug or upstream history rewrite).
 
 ### Replay manifest (verification)
 
-Stored at `.sync/replay-manifest.json` in this repo, updated after every
+Stored in `.sync/state.json` under `manifest`, updated after every
 successful bootstrap/rebuild:
 
 ```json
-{
-  "replaySpecVersion": 1,
-  "baseCommit": "6fc20894663468a04dd4986a8b1c15a9d5ae8649",
+"manifest": {
+  "replaySpecVersion": 3,
   "upstreamPins": {
     "ports": "<full-sha>",
     "ports-mingw": "<full-sha>"
@@ -259,8 +258,7 @@ scripts/
   Sync-Incremental.ps1    # New commits only
   lib/
     Sync-Config.ps1       # URLs, paths, branch names
-    Sync-State.ps1        # Read/write .sync/state.json
-    Sync-Manifest.ps1     # Read/write/compare replay-manifest.json
+    Sync-State.ps1        # Read/write .sync/state.json (includes manifest)
     Sync-Git.ps1          # Remotes, fetch, replay helpers
     Sync-GitHub.ps1       # gh/API helpers for SHA checks
 config/
@@ -321,11 +319,13 @@ engine's checkpoint file, not part of the destination tree.
 
 | Field | Purpose |
 |-------|---------|
-| `lastReplayedSha` (per source) | Last upstream commit already replayed onto `upstream`; incremental sync starts after this |
+| `sources.*.lastReplayedSha` | Last upstream commit replayed; incremental sync starts after this |
 | `lastUpstreamCheck` | Tip SHA seen on last poll; detects new upstream pushes without replaying |
 | `lastSyncAt` | ISO timestamp of last successful sync run |
-| `destinationBranchTip` | Tip SHA of destination `upstream`; must equal `replay-manifest.json` `destinationTipSha` |
-| `replayManifestSha` | Hash of `.sync/replay-manifest.json` for quick CI compare |
+| `manifest.destinationTipSha` | Tip SHA of destination `upstream` after last successful sync |
+| `manifest.commitCount` | Commits on `upstream` since `baseCommit` (for verify/rebuild) |
+| `manifest.treeRootSha` | Fingerprint of `ports/` + `ports-mingw/` at tip (for verify/rebuild) |
+| `manifest.replaySpecVersion` | Algorithm version when manifest was recorded |
 
 **Why it lives here:**
 
@@ -335,7 +335,7 @@ engine's checkpoint file, not part of the destination tree.
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "destination": {
     "branch": "upstream",
     "baseCommit": "6fc20894663468a04dd4986a8b1c15a9d5ae8649"
@@ -352,12 +352,20 @@ engine's checkpoint file, not part of the destination tree.
       "lastReplayedSha": null
     }
   },
-  "destinationBranchTip": null,
-  "replayManifestSha": null,
   "lastSyncAt": null,
   "lastUpstreamCheck": {
     "ports": null,
     "ports-mingw": null
+  },
+  "manifest": {
+    "replaySpecVersion": 3,
+    "upstreamPins": {
+      "ports": null,
+      "ports-mingw": null
+    },
+    "commitCount": 0,
+    "destinationTipSha": null,
+    "treeRootSha": null
   }
 }
 ```

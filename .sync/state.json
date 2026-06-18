@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "destination": {
     "branch": "upstream",
     "baseCommit": "6fc20894663468a04dd4986a8b1c15a9d5ae8649"
@@ -8,19 +8,27 @@
     "ports": {
       "repo": "msys2/MSYS2-packages",
       "branch": "master",
-      "lastReplayedSha": "7ed00ff5f91ed7e094edbffed2a25c9db2042e06"
+      "lastReplayedSha": "489dbdb3a89a4d4fc8b04da4ee4646492288a8ca"
     },
     "ports-mingw": {
       "repo": "msys2/MINGW-packages",
       "branch": "master",
-      "lastReplayedSha": null
+      "lastReplayedSha": "94a647260257fbe75ec6eda5dd10f79546d6555c"
     }
   },
-  "destinationBranchTip": "4d11abb3d672513bf12e748ffa91c461ddbd473f",
-  "replayManifestSha": "9adc3a0ef25cdccb80a3e4581e52b1d402c85744d02b93d03c985c0684b25690",
-  "lastSyncAt": "2026-06-18T09:49:54.7659907Z",
+  "lastSyncAt": "2026-06-18T10:01:34.8437637Z",
   "lastUpstreamCheck": {
     "ports": "aac3de013fac752c5d052883f4de45b574005bc2",
     "ports-mingw": "b1a9ee520e8db449debb62b6f3eb3232bd7eae7d"
+  },
+  "manifest": {
+    "replaySpecVersion": 3,
+    "upstreamPins": {
+      "ports": "aac3de013fac752c5d052883f4de45b574005bc2",
+      "ports-mingw": "b1a9ee520e8db449debb62b6f3eb3232bd7eae7d"
+    },
+    "commitCount": 0,
+    "destinationTipSha": "cef843dd1a2ae624fe418f6440235c3887aee6e6",
+    "treeRootSha": null
   }
 }

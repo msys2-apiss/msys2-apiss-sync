@@ -29,8 +29,7 @@ Do not rewrite the base commit from sync tooling.
 - Use normalized commit message template from `docs/PLAN.md` (Deterministic replay).
 - Do not use wholesale `git merge` of upstream repos.
 - Incremental runs must match append order of a full rebuild at same upstream tips.
-- Track progress in this repo's `.sync/state.json` (committed, not in destination).
-- Store expected tip in `.sync/replay-manifest.json`; verify on rebuild.
+- Track progress in this repo's `.sync/state.json` (cursors + manifest).
 
 ## Triggers
 
