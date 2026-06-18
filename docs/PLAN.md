@@ -132,7 +132,6 @@ Always use this exact template (LF line endings only):
 <upstream body, unchanged>
 
 Source: <upstream-repo>@<upstream-full-sha>
-Replayed-By: msys-uwp-sync/<replaySpecVersion>
 ```
 
 - `<source-id>`: `ports` or `ports-mingw`

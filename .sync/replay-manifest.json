@@ -1,5 +1,5 @@
 {
-  "replaySpecVersion": 2,
+  "replaySpecVersion": 3,
   "baseCommit": "6fc20894663468a04dd4986a8b1c15a9d5ae8649",
   "upstreamPins": {
     "ports": null,

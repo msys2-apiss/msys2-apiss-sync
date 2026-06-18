@@ -129,8 +129,7 @@ function Start-ReplaySync {
             -SortKey $item.SortKey `
             -Metadata $metadata `
             -UpstreamRepo $item.UpstreamRepo `
-            -UpstreamSha $item.Sha `
-            -ReplaySpecVersion $config.replaySpecVersion
+            -UpstreamSha $item.Sha
 
         $hasChanges = Apply-UpstreamCommitToIndex `
             -MirrorPath $item.MirrorPath `

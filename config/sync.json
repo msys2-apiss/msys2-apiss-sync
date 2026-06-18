@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "replaySpecVersion": 2,
+  "replaySpecVersion": 3,
   "syncRepo": {
     "owner": "msys2-uwp",
     "repo": "-msys2-uwp-sync",

@@ -178,12 +178,11 @@ function Format-ReplayCommitMessage {
         [Parameter(Mandatory)][string] $SortKey,
         [Parameter(Mandatory)] $Metadata,
         [Parameter(Mandatory)][string] $UpstreamRepo,
-        [Parameter(Mandatory)][string] $UpstreamSha,
-        [Parameter(Mandatory)][int] $ReplaySpecVersion
+        [Parameter(Mandatory)][string] $UpstreamSha
     )
 
     $subject = $Metadata.Subject
-    $footer = "Source: ${UpstreamRepo}@${UpstreamSha}`nReplayed-By: msys-uwp-sync/${ReplaySpecVersion}"
+    $footer = "Source: ${UpstreamRepo}@${UpstreamSha}"
 
     if ($Metadata.Body) {
         return ConvertTo-UnixLineEndings -Text "[${SortKey}] ${subject}`n`n$($Metadata.Body)`n`n$footer"
