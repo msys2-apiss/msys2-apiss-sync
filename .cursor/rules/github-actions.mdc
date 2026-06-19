@@ -27,7 +27,7 @@ Templates: `docs/examples/mirror-sync.yml`, `docs/examples/mirror-dispatch.yml`.
 ## Runner
 
 - Prefer `ubuntu-latest` with `actions/setup-node@v4` and Node.js 22.18+.
-- Run `npm ci` before running sync commands.
+- Run `yarn install --frozen-lockfile` before running sync commands.
 
 ## Concurrency
 

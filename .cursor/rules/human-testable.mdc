@@ -10,14 +10,14 @@ alwaysApply: true
 If a human cannot run it from the repo and see a clear result, do not ship it as
 the primary way to verify behavior.
 
-Prefer **runnable npm commands** with visible output over library-only recipes or
+Prefer **runnable Yarn commands** with visible output over library-only recipes or
 documentation-only instructions.
 
 ## Do
 
-- Provide runnable entry points: `npm run fetch-mirrors`,
-  `npm run retrieve-history`, `npm run merge-queue`, `npm run sync`,
-  `npm test`, and `npm run typecheck`
+- Provide runnable entry points: `yarn fetch-mirrors`,
+  `yarn retrieve-history`, `yarn merge-queue`, `yarn sync`, `yarn test`,
+  and `yarn typecheck`
 - Document how to run in [`docs/run-local.md`](../docs/run-local.md) (copy-paste,
   run, read `[sync]` / `[PASS]` / counts / tables)
 - Run the same command yourself before telling the user something works
@@ -27,7 +27,7 @@ documentation-only instructions.
 
 - Do not make importing lib modules the main test path
 - Do not split a pipeline into numbered Step01/Step02 scripts or opaque test
-  harnesses; use named npm scripts that run directly
+  harnesses; use named Yarn scripts that run directly
 - Do not write docs that only say "load functions" with no runnable command
 - Do not claim verification without running the command in this environment
 
@@ -38,8 +38,8 @@ documentation-only instructions.
 
 ## Agent behavior
 
-- After implementing sync logic, run the relevant command (`npm run fetch-mirrors`,
-  `npm run retrieve-history`, `npm run merge-queue`, `npm run sync`,
-  `npm test`, or `npm run typecheck`) and report
+- After implementing sync logic, run the relevant command (`yarn fetch-mirrors`,
+  `yarn retrieve-history`, `yarn merge-queue`, `yarn sync`, `yarn test`,
+  or `yarn typecheck`) and report
   actual output (counts, errors)
 - Use `--skip-fetch` when mirrors already exist under `.work/mirrors/`

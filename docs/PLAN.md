@@ -41,7 +41,7 @@ built-in type stripping (no `tsc` build, no `dist/`). Git operations use the `gi
 - Node.js native type stripping: `node src/cli/sync-upstream.ts` (enabled by default on
   Node 22.18+; on older 22.x use `--experimental-strip-types`)
 - `tsconfig.json` with `noEmit: true` and `erasableSyntaxOnly: true` for editor support and
-  `pnpm typecheck` (`tsc --noEmit`) -- not used at runtime
+  `yarn typecheck` (`tsc --noEmit`) -- not used at runtime
 - vitest for unit tests
 - `child_process.spawn` or `execa` for git subprocesses
 - `commander` or `yargs` for CLI flags
@@ -105,7 +105,7 @@ node src/cli/sync-upstream.ts \
   [--max-commits <n>]
 ```
 
-Or via `package.json` script: `pnpm sync` (runs `node src/cli/sync-upstream.ts`).
+Or via `package.json` script: `yarn sync` (runs `node src/cli/sync-upstream.ts`).
 
 | Flag | Purpose |
 |------|---------|
@@ -518,7 +518,7 @@ Phase 3 parity check, then removed in Phase 4.
   - `formatReplayCommitMessage`, `formatGitReplayDateEnv`
   - upstream commit log metadata parser
   - `parseGitCommitObject`
-- Port existing unit tests to vitest; `pnpm test` green
+- Port existing unit tests to vitest; `yarn test` green
 
 ### Phase 1a -- Foundation (config + git workspace + destination branches)
 
@@ -645,7 +645,7 @@ Implements **Stage 1** and **Stage 2** from implementation design.
 - **Retrieve:** `getSourceReplayHistory` from `upstream-ports` / `upstream-ports-mingw` cursor SHAs to mirror tip
 - **Sort:** `compareReplayRank`, `mergeReplayCommitQueues` (4-key merge, not global sort)
 - Local try-it commands: [`run-local.md`](run-local.md)
-- Tests: `pnpm test`
+- Tests: `yarn test`
 
 ### Phase 1c -- Replay one-by-one (`replay.ts`)
 
@@ -666,7 +666,7 @@ Verify against legacy PowerShell on `--dry-run --max-commits 100` (same skip/rep
 ### Phase 4 -- Remove PowerShell + update CI/docs
 
 - Remove `scripts/*.ps1`, `scripts/lib/*.ps1`, `tests/*.Tests.ps1`, `config/config.psd1`
-- Update [`run-local.md`](run-local.md) with `pnpm` commands
+- Update [`run-local.md`](run-local.md) with `yarn` commands
 - Consolidate CI to single [`sync-upstream.yml`](../.github/workflows/sync-upstream.yml) calling TS CLI
 - Update [`AGENTS.md`](../AGENTS.md) and cursor rules (replace `powershell-scripts.mdc` with TypeScript rules)
 
@@ -689,8 +689,8 @@ GitHub Actions requires static cron in YAML; workflow comments reference sync.js
 
 | Item | Change |
 |------|--------|
-| Runtime | `actions/setup-node` (Node 22.18+), `pnpm install` |
-| Sync script | `pnpm sync` or `node src/cli/sync-upstream.ts` |
+| Runtime | `actions/setup-node` (Node 22.18+), `yarn install --frozen-lockfile` |
+| Sync script | `yarn sync` or `node src/cli/sync-upstream.ts` |
 | Triggers | `repository_dispatch`, schedule, `workflow_dispatch` with optional `clean` input |
 | Schedule | `# PollIntervalMinutes=60, DailyReconciliationCron in config/sync.json` |
 | Push | Three destination branches (`upstream`, `upstream-ports`, `upstream-ports-mingw`) |
@@ -738,7 +738,7 @@ GitHub Actions requires static cron in YAML; workflow comments reference sync.js
 | NUL-delimited `diff-tree -z` parsing bugs | Port parser logic literally; keep `-z` tests with non-ASCII paths |
 | UTF-8 author names / commit messages | Keep `LANG=C.UTF-8`, UTF-8 stdin/stdout, LF-only messages |
 | 69k-commit bootstrap runtime still hours | Set CI timeout appropriately; log commits/sec; tune checkpoint interval |
-| Windows local dev | Node + git works on win32; test `pnpm sync` locally |
+| Windows local dev | Node + git works on win32; test `yarn sync` locally |
 
 ---
 

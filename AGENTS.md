@@ -36,5 +36,5 @@ MSYS2 package history into `msys2-uwp/msys2-uwp`.
 | Replay cursors | destination branches `upstream`, `upstream-ports`, `upstream-ports-mingw` |
 | CI | `.github/workflows/` |
 | Design changes | update `docs/PLAN.md` first |
-| Run locally | `npm run fetch-mirrors`, `npm run retrieve-history`, `npm run merge-queue`, `npm run sync` -- see [`docs/run-local.md`](docs/run-local.md) |
-| Unit tests | `npm test`, `npm run typecheck` |
+| Run locally | `yarn fetch-mirrors`, `yarn retrieve-history`, `yarn merge-queue`, `yarn sync` -- see [`docs/run-local.md`](docs/run-local.md) |
+| Unit tests | `yarn test`, `yarn typecheck` |

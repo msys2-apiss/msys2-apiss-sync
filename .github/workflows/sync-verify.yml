@@ -27,7 +27,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22.18.0'
-          cache: npm
+          cache: yarn
 
       - name: Configure git
         run: |
@@ -42,13 +42,13 @@ jobs:
           git clone "https://github.com/msys2-uwp/msys2-uwp.git" .work/destination/msys2-uwp
 
       - name: Install dependencies
-        run: npm ci
+        run: yarn install --frozen-lockfile
 
       - name: Run verify
         id: verify
         continue-on-error: true
         run: |
-          npm run sync -- --dry-run --skip-fetch --destination-path .work/destination/msys2-uwp
+          yarn sync --dry-run --skip-fetch --destination-path .work/destination/msys2-uwp
 
       - name: Open issue on mismatch
         if: steps.verify.outcome == 'failure'
