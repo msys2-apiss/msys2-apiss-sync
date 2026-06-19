@@ -20,6 +20,7 @@ MSYS2 package history into `msys2-uwp/msys2-uwp`.
 
 ## Do not
 
+- Use Cursor internal plans (`~/.cursor/plans/`) or untracked shadow plan files; edit [`docs/PLAN.md`](docs/PLAN.md) only (see `.cursor/rules/planning-docs.mdc`)
 - Use `git merge` of entire upstream repos into destination (use replay instead)
 - Add Windows-only APIs (`Get-WmiObject`, registry, etc.) in shared scripts
 - Commit PATs or tokens; use GitHub Actions secrets only

@@ -1,0 +1,39 @@
+---
+description: Keep plans in git-tracked docs only; no Cursor internal plans
+alwaysApply: true
+---
+
+# Planning and design docs
+
+## Single source of truth
+
+All architecture, phases, and implementation design live in committed repo files:
+
+- **Primary plan:** [`docs/PLAN.md`](docs/PLAN.md)
+
+Edit `docs/PLAN.md` directly. Do not create parallel plan files (e.g.
+`PLAN-implementation.md`, `PLAN-draft.md`) unless the user explicitly asks for
+a temporary split.
+
+## Do not use Cursor internal plans
+
+Do **not** treat Cursor's internal plan feature as the project plan:
+
+- No authoring or updating `~/.cursor/plans/*.plan.md` as the canonical design
+- No copying plans to/from Cursor-only paths instead of the repo
+- No "save to repo later" -- changes belong in `docs/PLAN.md` in the same turn
+
+Internal plans are untracked, invisible in git, and easy to lose. They caused
+confusion when they diverged from `docs/PLAN.md`.
+
+## When design changes
+
+1. Update [`docs/PLAN.md`](docs/PLAN.md) in this repository
+2. Commit plan changes when the user asks (or as part of an agreed docs pass)
+3. Reference `docs/PLAN.md` in code, rules, and PRs -- not Cursor plan URLs
+
+## Agent behavior
+
+- Read design from `docs/PLAN.md`, not from conversation-only or Cursor-internal state
+- If the user iterates on design, edit `docs/PLAN.md` (plan iteration), not a shadow file
+- If `docs/PLAN.md` and chat history disagree, the committed file wins unless the user is actively revising it
