@@ -10,7 +10,7 @@ Standalone reference behavior summary:
 | Selection control | Root scanning with repeatable root arguments | One explicit path argument with default |
 | Text region handling | Full file for markdown, comments-only for code files | Full file normalization |
 | Normalization rules | Replace smart punctuation and mojibake with ASCII equivalents | Same ASCII-safe punctuation policy |
-| Encoding output | UTF-8 no BOM, LF newlines | UTF-8 no BOM, LF newlines |
+| Encoding output | UTF-8 no BOM; existing files keep line endings; new files use EditorConfig `end_of_line` | UTF-8 no BOM, LF newlines |
 | Control chars | Keep normal text and line structure | Strip disallowed controls except tab/newline |
 | Check mode | `--check` exits non-zero when any file would change | `--check` exits non-zero when file would change |
 | Write mode | Rewrites only files requiring normalization | Rewrites only when normalization is needed |
@@ -74,15 +74,137 @@ Implementation expectations:
 - Provide `--check` mode for CI/guard use (no writes; non-zero on violations).
 - Provide write mode for optional one-shot normalization.
 - Apply the three mapping tables above in deterministic order.
-- Decode input with strict UTF-8 first; if decode fails, apply configured fallback
-  decoding only for files in fallback scope.
-- Normalize line endings to LF and keep output in UTF-8 (no BOM).
+- Keep output in UTF-8 (no BOM) except a preserved file-leading UTF-8 BOM.
+- **Line endings:** existing git-tracked files keep their current line-ending
+  style; new (untracked) files use EditorConfig `end_of_line` (default `lf`).
 - Do not strip a file-leading UTF-8 BOM (first three bytes); only normalize
   `U+FEFF` when it appears in the middle of content.
 - Emit parseable failures in `path:line:reason` format.
 - Keep scope minimal and support allowlist paths to avoid unrelated rewrites.
 - Treat Unicode `General_Category=P*` as candidate punctuation coverage; the three
   tables above define the concrete normalization subset for this project.
+
+Encoding detection order:
+
+Detection resolves **metadata only** -- the input charset, output charset, and
+output line ending for a file. It does **not** decode bytes or normalize text.
+Decoding and normalization are separate steps below.
+
+Detection output per file:
+
+| Field | Value |
+|-------|-------|
+| `inputCharset` | Charset used to interpret raw bytes (e.g. `utf-8`, `gbk`, `cp1252`, `latin1`) |
+| `outputCharset` | Always `utf-8` (no BOM), except preserve a file-leading UTF-8 BOM when present |
+| `outputLineEnding` | `lf`, `crlf`, or `cr` for written bytes |
+| `leadingUtf8Bom` | Whether raw bytes start with `EF BB BF` |
+
+Run charset detection in order; stop at the first rule that sets `inputCharset`:
+
+| Step | Name | Input | Sets `inputCharset` when |
+|------|------|-------|---------------------------|
+| 1 | BOM prefix | Raw bytes | BOM present: `EF BB BF` -> `utf-8`; `FF FE` -> `utf-16le`; `FE FF` -> `utf-16be`. **BOM wins over EditorConfig.** Also sets `leadingUtf8Bom` for UTF-8 BOM. |
+| 2 | EditorConfig charset | File path | No BOM from step 1: use `charset` from `.editorconfig` (default `utf-8`). Values: `utf-8`, `utf-8-bom`, `latin1`, `utf-16be`, `utf-16le`. |
+| 3 | Legacy encoding guess | Steps 1-2 did not fix charset; no `--fallback-scope`, or path matches scope | Build candidate pool ordered by **system ANSI code page**, then score (see below). Best label becomes `inputCharset`. |
+| 4 | UTF-8 fallback | Step 3 produced no charset | Set `inputCharset` to `utf-8` |
+
+Legacy encoding guess (step 3):
+
+Candidate **try-order** follows the host **ANSI code page** (Windows ACP). The
+charset matching ACP is tried first; remaining project legacy charsets follow in
+fixed order; `chardet` fills the pool last.
+
+| ANSI code page (ACP) | First legacy charset | Then |
+|----------------------|----------------------|------|
+| `1252` (Western) | `cp1252` | `gbk`, chardet |
+| `936` (GBK) | `gbk` | `cp1252`, chardet |
+| Other / unknown | `cp1252` | `gbk`, chardet |
+
+(ACP table applies on **Windows only**; see chardet section for Linux/macOS.)
+
+Resolve ACP at runtime on **Windows only** (system ACP). On Linux and macOS there
+is no ANSI code page; use the fixed legacy try-order `gbk`, then `cp1252`, then
+chardet. `--fallback-encoding` inserts extra labels after the ACP-first slot
+(Windows) or after `gbk` (non-Windows), before chardet.
+
+**chardet (platform-specific):**
+
+Install: `npm i chardet`. Pass raw `Buffer` / `Uint8Array` (not a JS string).
+
+Windows -- restricted to system ACP and CP1252:
+
+```javascript
+import chardet from "chardet";
+
+const allowed = [windowsSystemAcpLabel, "windows-1252"];
+const candidates = chardet.analyse(buffer).filter(
+  (r) => r.confidence >= 50 && allowed.includes(r.name),
+);
+```
+
+`windowsSystemAcpLabel` is the chardet encoding name for the host ACP (e.g.
+ACP `1252` -> `"windows-1252"`, ACP `936` -> `"GB18030"`). Map result names to
+project charsets (`windows-1252` -> `cp1252`, `GB18030` -> `gbk`).
+
+Linux and macOS -- no ACP filter; use full analyse pass:
+
+```javascript
+import chardet from "chardet";
+
+const candidates = chardet.analyse(buffer).filter((r) => r.confidence >= 50);
+```
+
+Merge chardet candidates with the ACP-ordered (Windows) or fixed (non-Windows)
+try-list before scoring. `chardet.detect(buffer)` may be used when only the top
+hit is needed.
+
+**Scoring:** decode-trial each candidate fatal; rank by fewest unsupported `P*`
+punctuation, then fewest non-ASCII chars, then encoding name. Best score wins
+`inputCharset`.
+
+Line ending detection (sets `outputLineEnding`; independent of charset steps):
+
+| File kind | Rule |
+|-----------|------|
+| Existing (git-tracked) | Keep line-ending style detected from raw bytes (`CRLF`, `CR`, or `LF`) |
+| New (not git-tracked) | Use EditorConfig `end_of_line` for path (default `lf`) |
+
+Priority summary: **BOM charset (step 1) > EditorConfig charset (step 2) > legacy
+guess pool (step 3) > UTF-8 fallback (step 4).**
+
+Notes:
+
+- Step 2 `latin1` / UTF-16 values are **declared** charsets from EditorConfig, not
+  guessed. GBK/CP1252 are not EditorConfig charset values; they appear only via
+  step 3.
+- **This repo:** `.editorconfig` sets `charset = utf-8` everywhere, so step 2
+  normally yields `utf-8`. Invalid UTF-8 byte sequences are handled at decode time;
+  if decode fails with `utf-8`, re-run detection step 3 to pick a legacy charset.
+- Step 3 try-order is **ACP-driven on Windows**; fixed `gbk`, `cp1252` on
+  Linux/macOS. chardet: Windows filters `analyse()` to
+  `[windowsSystemAcpLabel, "windows-1252"]`; Linux/macOS uses full `analyse()`.
+- `--fallback-encoding` adds encodings after the ACP-first slot, before chardet.
+- `--fallback-scope` when set restricts step 3 to matching paths.
+- Step 4 always yields a charset: if step 3 finds no candidate, use `utf-8`.
+  Decode may still fail later if bytes are not valid UTF-8 (`path:1:decode failed`).
+- Dependency: `chardet` (`npm i chardet`), loaded by
+  `scripts/minimal-safe-editing-check.mjs`.
+
+Decode (separate step):
+
+After detection, decode raw bytes with `inputCharset` (`TextDecoder` fatal, or
+CP1252 byte map). If decode fails and `inputCharset` was `utf-8` from step 2,
+run detection step 3 and retry decode once. Failure reports
+`path:1:decode failed`.
+
+Normalize + write (separate step):
+
+On decoded text:
+
+- Apply punctuation mapping tables (LF internally).
+- Remove mid-file `U+FEFF`; preserve file-leading UTF-8 BOM when `leadingUtf8Bom`.
+- Apply `outputLineEnding` to final bytes.
+- Encode as `outputCharset` (UTF-8 no BOM, except preserved leading BOM).
 
 P* extension policy:
 
@@ -100,11 +222,12 @@ Required test cases:
 | `utf8-known-quotes` | UTF-8 mapped punctuation | `U+2018/U+2019`, `U+201C/U+201D` | normalized to `'` and `"` |
 | `utf8-known-ellipsis` | UTF-8 mapped punctuation | `U+2026` | normalized to `...` |
 | `utf8-known-arrow` | UTF-8 mapped punctuation | `U+2192`, `U+2194`, `U+2193` | normalized to `->`, `<->`, `v` |
-| `gbk-known-dash` | GBK fallback decode | bytes `A1 AA`, `A8 43` | normalized to `-` |
-| `gbk-known-quotes` | GBK fallback decode | bytes `A1 AE/A1 AF`, `A1 B0/A1 B1` | normalized to `'` and `"` |
-| `cp1252-known-dash` | CP1252 fallback decode | bytes `96`, `97` | normalized to `-` |
-| `cp1252-known-quotes` | CP1252 fallback decode | bytes `91/92`, `93/94`, `82`, `84` | normalized to `'` and `"` |
-| `cp1252-known-ellipsis` | CP1252 fallback decode | byte `85` | normalized to `...` |
+| `gbk-known-dash` | GBK encoding guess | bytes `A1 AA`, `A8 43` | normalized to `-` |
+| `gbk-known-quotes` | GBK encoding guess | bytes `A1 AE/A1 AF`, `A1 B0/A1 B1` | normalized to `'` and `"` |
+| `cp1252-known-dash` | CP1252 encoding guess | bytes `96`, `97` | normalized to `-` |
+| `cp1252-known-quotes` | CP1252 encoding guess | bytes `91/92`, `93/94`, `82`, `84` | normalized to `'` and `"` |
+| `cp1252-known-ellipsis` | CP1252 encoding guess | byte `85` | normalized to `...` |
+| `chardet-fallback` | Legacy encoding guess (detection step 3) | legacy bytes not valid UTF-8; `chardet.analyse()` candidate in pool | `inputCharset` picked; decode + normalize when mappable |
 | `bom-leading-keep` | UTF-8 BOM boundary | BOM at file start only | preserved (not removed) |
 | `bom-mid-remove` | UTF-8 BOM boundary | `U+FEFF` in middle | removed |
 | `pstar-unmapped-check` | `P*` candidate coverage | punctuation not in mapping tables | check mode fails with `path:line:reason` |
@@ -113,3 +236,5 @@ Required test cases:
 | `deterministic-order` | output stability | same file set, repeated run | same diagnostics order and content |
 | `check-no-write` | mode contract | run with `--check` | no file content changes |
 | `write-idempotent` | mode contract | run write mode twice | second run reports no changes |
+| `eol-existing-keep` | EOL policy | git-tracked file with CRLF | punctuation normalized; CRLF preserved |
+| `eol-new-editorconfig` | EOL policy | untracked file with CRLF | output uses EditorConfig `end_of_line` (`lf`) |
