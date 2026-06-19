@@ -138,11 +138,22 @@ function Apply-UpstreamCommitToIndex {
     }
 
     if ($removePaths.Count -gt 0) {
-        $removeArgs = @('rm', '--cached', '-f', '--ignore-unmatch', '--') + $removePaths
+        $removeArgs = @('rm', '--cached', '-r', '-f', '--ignore-unmatch', '--') + $removePaths
         $null = Invoke-Git -RepoPath $DestinationPath -GitArgs $removeArgs
     }
 
     return $true
+}
+
+function Test-UpstreamCommitHasMappedChanges {
+    param(
+        [Parameter(Mandatory)][string] $MirrorPath,
+        [Parameter(Mandatory)][string] $Commit,
+        [Parameter(Mandatory)][string] $Parent
+    )
+
+    $diffEntries = Get-DiffTreeEntries -MirrorPath $MirrorPath -Parent $Parent -Commit $Commit
+    return ($diffEntries.Count -gt 0)
 }
 
 function Format-GitReplayDateEnv {

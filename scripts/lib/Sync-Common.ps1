@@ -1,5 +1,71 @@
 #requires -Version 7.0
 
+if (-not (Get-Variable -Name SyncLogFile -Scope Script -ErrorAction SilentlyContinue)) {
+    $script:SyncLogFile = $null
+}
+if (-not (Get-Variable -Name SyncLogWriter -Scope Script -ErrorAction SilentlyContinue)) {
+    $script:SyncLogWriter = $null
+}
+if (-not (Get-Variable -Name SyncLogQuietConsole -Scope Script -ErrorAction SilentlyContinue)) {
+    $script:SyncLogQuietConsole = $false
+}
+
+function Set-SyncLogFile {
+    param(
+        [Parameter(Mandatory)][string] $Path,
+        [switch] $Append,
+        [switch] $QuietConsole
+    )
+
+    Close-SyncLogFile
+
+    $dir = Split-Path -Parent $Path
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+
+    $script:SyncLogFile = $Path
+    $script:SyncLogQuietConsole = [bool]$QuietConsole
+
+    $encoding = [System.Text.UTF8Encoding]::new($false)
+    try {
+        $fileStream = [System.IO.FileStream]::new(
+            $Path,
+            [System.IO.FileMode]::OpenOrCreate,
+            [System.IO.FileAccess]::Write,
+            [System.IO.FileShare]::ReadWrite
+        )
+        if ($Append) {
+            $null = $fileStream.Seek(0, [System.IO.SeekOrigin]::End)
+        }
+        else {
+            $fileStream.SetLength(0)
+        }
+    }
+    catch {
+        $fallbackDir = if ($dir) { $dir } else { (Get-Location).Path }
+        $fallback = Join-Path $fallbackDir ('sync-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.log')
+        Write-Warning "Could not open log file '$Path' ($($_.Exception.Message)); using '$fallback'."
+        $script:SyncLogFile = $fallback
+        $fileStream = [System.IO.FileStream]::new(
+            $fallback,
+            [System.IO.FileMode]::Create,
+            [System.IO.FileAccess]::Write,
+            [System.IO.FileShare]::ReadWrite
+        )
+    }
+
+    $script:SyncLogWriter = [System.IO.StreamWriter]::new($fileStream, $encoding)
+    $script:SyncLogWriter.AutoFlush = $true
+}
+
+function Close-SyncLogFile {
+    if ($script:SyncLogWriter) {
+        $script:SyncLogWriter.Dispose()
+        $script:SyncLogWriter = $null
+    }
+}
+
 function Write-SyncLog {
     param(
         [Parameter(Mandatory)]
@@ -12,7 +78,14 @@ function Write-SyncLog {
         'Error' { '[sync][error]' }
         default { '[sync]' }
     }
-    Write-Host "$prefix $Message"
+    $line = "$prefix $Message"
+    $writeConsole = (-not $script:SyncLogQuietConsole) -or ($Level -ne 'Info')
+    if ($writeConsole) {
+        Write-Host $line
+    }
+    if ($script:SyncLogWriter) {
+        $script:SyncLogWriter.WriteLine($line)
+    }
 }
 
 function Clear-GitLockFiles {
@@ -50,29 +123,49 @@ function Invoke-Git {
         [int] $MaxAttempts = 5
     )
 
-    $allArgs = if ($RepoPath) { @('-C', $RepoPath) + $GitArgs } else { $GitArgs }
     $attempt = 0
     $lastOutput = $null
 
     while ($attempt -lt $MaxAttempts) {
         $attempt++
-        $output = & git @allArgs 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            return $output
+
+        $psi = [System.Diagnostics.ProcessStartInfo]::new('git')
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
+        $psi.StandardErrorEncoding = [System.Text.UTF8Encoding]::new($false)
+
+        if ($RepoPath) {
+            [void]$psi.ArgumentList.Add('-C')
+            [void]$psi.ArgumentList.Add($RepoPath)
+        }
+        foreach ($arg in $GitArgs) {
+            [void]$psi.ArgumentList.Add($arg)
         }
 
-        $lastOutput = "$output"
+        $process = [System.Diagnostics.Process]::Start($psi)
+        $stdout = $process.StandardOutput.ReadToEnd()
+        $stderr = $process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+
+        if ($process.ExitCode -eq 0) {
+            if ($stdout) { return $stdout }
+            return $stderr
+        }
+
+        $lastOutput = if ($stderr) { $stderr.Trim() } else { $stdout.Trim() }
         if ($RepoPath -and (Test-GitLockError -Text $lastOutput) -and $attempt -lt $MaxAttempts) {
             Clear-GitLockFiles -RepoPath $RepoPath
             Start-Sleep -Milliseconds (200 * $attempt)
             continue
         }
 
-        $cmd = "git $($allArgs -join ' ')"
+        $cmd = if ($RepoPath) { "git -C $RepoPath $($GitArgs -join ' ')" } else { "git $($GitArgs -join ' ')" }
         throw "git command failed ($cmd): $lastOutput"
     }
 
-    $cmd = "git $($allArgs -join ' ')"
+    $cmd = if ($RepoPath) { "git -C $RepoPath $($GitArgs -join ' ')" } else { "git $($GitArgs -join ' ')" }
     throw "git command failed ($cmd): $lastOutput"
 }
 

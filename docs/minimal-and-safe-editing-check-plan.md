@@ -187,8 +187,9 @@ Notes:
 - `--fallback-scope` when set restricts step 3 to matching paths.
 - Step 4 always yields a charset: if step 3 finds no candidate, use `utf-8`.
   Decode may still fail later if bytes are not valid UTF-8 (`path:1:decode failed`).
-- Dependency: `chardet` (`npm i chardet`), loaded by
-  `scripts/minimal-safe-editing-check.mjs`.
+- Dependency: `chardet` (`npm i chardet`). Source:
+  `src/minimal-safe-editing-check/`; CLI: `npm run build` then
+  `npm run msec:check` or `node dist/minimal-safe-editing-check/cli.js`.
 
 Decode (separate step):
 

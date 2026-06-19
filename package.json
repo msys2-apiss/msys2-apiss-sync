@@ -1,0 +1,20 @@
+{
+  "name": "msys2-uwp-sync",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "test": "vitest run",
+    "msec:check": "node dist/minimal-safe-editing-check/cli.js --check",
+    "msec:write": "node dist/minimal-safe-editing-check/cli.js --write"
+  },
+  "dependencies": {
+    "chardet": "^2.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4"
+  }
+}

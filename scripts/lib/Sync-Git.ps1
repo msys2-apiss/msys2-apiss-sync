@@ -26,12 +26,14 @@ function Initialize-MirrorRepository {
     if (-not (Test-Path -LiteralPath $mirrorPath)) {
         Write-SyncLog "Cloning mirror for $SourceKey ($url)"
         $null = Invoke-Git -GitArgs @('clone', '--mirror', $url, $mirrorPath)
+        Set-GitRepoUtf8Encoding -RepoPath $mirrorPath
     }
     elseif (-not $SkipFetch) {
         Write-SyncLog "Fetching mirror for $SourceKey"
         $null = Invoke-Git -RepoPath $mirrorPath -GitArgs @('fetch', '--prune', 'origin')
     }
 
+    Set-GitRepoUtf8Encoding -RepoPath $mirrorPath
     return $mirrorPath
 }
 
@@ -58,12 +60,89 @@ function Initialize-DestinationRepository {
     if (-not (Test-Path -LiteralPath $destPath)) {
         Write-SyncLog "Cloning destination ($url)"
         $null = Invoke-Git -GitArgs @('clone', $url, $destPath)
+        Set-GitRepoUtf8Encoding -RepoPath $destPath
     }
     elseif (-not $SkipFetch) {
         $null = Invoke-Git -RepoPath $destPath -GitArgs @('fetch', 'origin', '--prune')
     }
 
+    Set-GitRepoUtf8Encoding -RepoPath $destPath
     return $destPath
+}
+
+function Set-GitRepoUtf8Encoding {
+    param(
+        [Parameter(Mandatory)][string] $RepoPath
+    )
+
+    foreach ($entry in @(
+            ,@('i18n.logOutputEncoding', 'utf-8')
+            ,@('i18n.commitEncoding', 'utf-8')
+            ,@('core.quotepath', 'false')
+        )) {
+        $null = Invoke-Git -RepoPath $RepoPath -GitArgs @('config', $entry[0], $entry[1])
+    }
+}
+
+function Initialize-DestinationAlternates {
+    param(
+        [Parameter(Mandatory)][string] $DestinationPath,
+        [Parameter(Mandatory)][string[]] $MirrorPaths
+    )
+
+    $alternatesDir = Join-Path $DestinationPath '.git/objects/info'
+    if (-not (Test-Path -LiteralPath $alternatesDir)) {
+        New-Item -ItemType Directory -Path $alternatesDir -Force | Out-Null
+    }
+
+    $normalized = foreach ($mirrorPath in $MirrorPaths) {
+        $objectsPath = Join-Path (Resolve-Path -LiteralPath $mirrorPath).Path 'objects'
+        if (Test-Path -LiteralPath $objectsPath) {
+            ($objectsPath -replace '\\', '/')
+        }
+    }
+
+    $alternatesFile = Join-Path $alternatesDir 'alternates'
+    $text = (($normalized | Where-Object { $_ }) -join "`n") + "`n"
+    [System.IO.File]::WriteAllText($alternatesFile, $text, [System.Text.UTF8Encoding]::new($false))
+}
+
+function Ensure-DestinationBaseCommit {
+    param(
+        [Parameter(Mandatory)][string] $DestinationPath,
+        [Parameter(Mandatory)] $Config
+    )
+
+    $base = $Config.Destination.BaseCommit
+    try {
+        $null = Invoke-Git -RepoPath $DestinationPath -GitArgs @('cat-file', '-e', "${base}^{commit}")
+        return
+    }
+    catch {
+        Write-SyncLog "Base commit not in clone; fetching from origin" -Level Warn
+    }
+
+    $null = Invoke-Git -RepoPath $DestinationPath -GitArgs @('fetch', 'origin', $base)
+    $null = Invoke-Git -RepoPath $DestinationPath -GitArgs @('cat-file', '-e', "${base}^{commit}")
+}
+
+function Set-DestinationReplayCheckout {
+    param(
+        [Parameter(Mandatory)][string] $DestinationPath,
+        [Parameter(Mandatory)] $Config,
+        [Parameter(Mandatory)][bool] $IsFullReplay
+    )
+
+    $replayBranch = $Config.Destination.Branches.Replay
+    if ($IsFullReplay) {
+        $base = $Config.Destination.BaseCommit
+        $null = Invoke-Git -RepoPath $DestinationPath -GitArgs @(
+            'checkout', '-B', $replayBranch, $base
+        )
+        return
+    }
+
+    $null = Invoke-Git -RepoPath $DestinationPath -GitArgs @('checkout', $replayBranch)
 }
 
 function Add-SourceRemotesToDestination {

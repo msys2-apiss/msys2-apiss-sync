@@ -1,0 +1,111 @@
+---
+description: Minimal and safe editing
+alwaysApply: true
+---
+
+# Minimal and Safe Editing
+
+Apply this every time you edit code, reply, commit, or open a PR. It covers
+scope, style, interfaces, contracts, encoding, and text fidelity.
+
+## Core principle
+
+Make only the changes the user explicitly requested in the current message;
+keep style stable and leave everything else byte-for-byte unchanged.
+
+## Procedure for every edit
+
+1. List the exact files and changes the request names.
+2. If a change is not on that list, do not make it; ask first.
+3. Make the smallest diff that satisfies the request; touch only those regions.
+4. If your change breaks compile, test, or runtime, fix only that breakage, in
+   the smallest scope.
+5. Before sending, run the checks in "Validate before sending".
+
+- If the request is a question or review only, do not edit any file.
+- If the request is ambiguous or scope is unclear, stop and ask.
+- Debugging does not expand scope.
+
+## Do not, unless explicitly requested
+
+- Refactor, rename, or move code.
+- Extract constants, helpers, or functions.
+- Reformat, reflow, reorder imports, or edit whitespace.
+- Edit comments that are not part of the requested change.
+- Change defaults, entry points, or control flow.
+- Replace a working approach with a different one.
+- Delete files, or add or remove dependencies or versions.
+- Change CI, env vars, or settings.
+- Add tests, docs, or new files.
+
+## Interfaces and contracts
+
+Treat anything other code, scripts, or users depend on as a fixed contract:
+filenames, log names, package-list paths, redirect targets, exported names and
+function signatures, CLI flags and argument order, env var names, config and
+JSON/YAML keys, command strings, exit codes, and parseable log or output text.
+
+- Do not rename, reorder, or restructure a contract while making an unrelated
+  change.
+- Preserve existing command invocations verbatim. Example: do not swap a bulk
+  command for a loop, or change flags, unless the user asks.
+- To change a contract, stop and ask first, then update every caller and
+  consumer in the same change. These are not harmless refactors.
+
+## Encoding and text fidelity
+
+Applies to all text you write or edit: code, comments, docs, chat, commits, PRs.
+
+- Preserve original file encoding and line endings.
+- Never rewrite or re-encode untouched text, including non-ASCII text (e.g. GBK,
+  UTF-8 comments, copyright or bullet symbols).
+- On new or modified lines, use ASCII punctuation only. Do not introduce smart
+  quotes, em or en dash, ellipsis char, full-width punctuation, Unicode bullets,
+  or non-ASCII arrows.
+- Do not change or normalize punctuation in existing text unless asked.
+- Do not make style-only punctuation edits in comments, docs, or strings.
+- If you detect encoding corruption, restore the original characters from the
+  base content; do not "fix" it by normalizing punctuation.
+- Do not reflow or wrap untouched lines. Wrap only a line you functionally edit,
+  and only when it aids correctness or local readability, or when asked.
+- All plan documents must use UTF-8 encoding by default (no BOM preferred),
+  including new `*plan*.md` files.
+
+## Planning and execution
+
+- If the user asks for a direct fix, implement it. Do not substitute a long plan
+  or multi-option review unless they asked for planning.
+- Do not switch to Plan mode or broaden the task with extra refactors,
+  follow-ups, or optional improvements unless asked or scope is unclear.
+- Do not start long builds, installs, or full test suites unless asked, or to
+  run a minimal check that verifies your requested change.
+
+## Commits and pull requests (only when asked)
+
+- Stage only files that belong to the requested change; do not bundle unrelated
+  work.
+- Commit title: read recent `git log` and match this repo's title style only
+  (short summary; accurate verbs: add, fix, update, remove).
+- Commit body: always include a detailed `- ` bullet list of what changed.
+  Wrap body lines at 80 columns.
+- When amending, keep the title format; update the title only if the change
+  scope warrants it. Always rewrite the body as a fresh detailed `- ` bullet
+  list of what is in the commit, wrapped at 80 columns.
+- PR title: short summary. PR body: `- ` bullets for Summary and Test plan;
+  complete sentences; ASCII punctuation only.
+
+## Formatting for new prose
+
+- Line width: follow `.editorconfig`, then workspace or Cursor settings; else
+  aim for commit/PR text and comments around 80 characters. This is a soft
+  guide, not a hard limit; overflow when wrapping would hurt readability.
+- Use `- ` bullets in commit/PR bodies.
+
+## Validate before sending
+
+Before sending a reply or creating a commit or PR:
+
+- Re-scan the diff and drafted text for mojibake, replacement characters, and
+  non-ASCII punctuation on new or modified lines.
+- Confirm every changed region maps to something the user requested.
+- If anything fails, fix or restore it before sending.
