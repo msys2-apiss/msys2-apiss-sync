@@ -12,7 +12,7 @@ Sync behavior is derived from **destination branch presence**:
 |-----------|----------|
 | All three branches exist | **Incremental** -- resume from branch tips, apply age gate |
 | Any branch missing | **Bootstrap** -- full replay from history root, no age gate |
-| `-Clean` passed | Delete/reset all three branches first, then bootstrap |
+| `--clean` passed | Delete/reset all three branches first, then bootstrap |
 
 Branches (all in `msys2-uwp/msys2-uwp`):
 
@@ -20,37 +20,111 @@ Branches (all in `msys2-uwp/msys2-uwp`):
 - `upstream-ports` -- last replayed MSYS2-packages upstream SHA
 - `upstream-ports-mingw` -- last replayed MINGW-packages upstream SHA
 
-**Single config file.** All sync constants live in [`config/config.psd1`](../config/config.psd1) only. Scripts read via `Import-PowerShellDataFile`; they never write config. Full file content is defined in **Phase 1a** below.
+**Single config file.** All sync constants live in [`config/sync.json`](../config/sync.json) only.
+Scripts read via `config.ts`; they never write config. Full file content is defined in
+**Phase 1a** below.
 
-**Not in config.psd1:** GitHub secrets (`MSYS2_UWP_SYNC_TOKEN`, etc.), CLI flags (`-Clean`, `-DryRun`, `-DestinationPath`, `-MaxCommits`), and ephemeral paths (default `.work/` derived in code or a single `WorkDirectory` key if needed).
+**Not in sync.json:** GitHub secrets (`MSYS2_UWP_SYNC_TOKEN`, etc.), CLI flags (`--clean`,
+`--dry-run`, `--destination-path`, `--max-commits`), and ephemeral paths (default `.work/`
+derived in code).
+
+---
+
+## Runtime
+
+Sync tooling is **TypeScript on Node.js 22.18+** (ESM). Node runs `.ts` source directly via
+built-in type stripping (no `tsc` build, no `dist/`). Git operations use the `git` CLI only
+(no libgit2). Cross-platform: Windows, Linux, macOS.
+
+**Tooling:**
+
+- Node.js native type stripping: `node src/cli/sync-upstream.ts` (enabled by default on
+  Node 22.18+; on older 22.x use `--experimental-strip-types`)
+- `tsconfig.json` with `noEmit: true` and `erasableSyntaxOnly: true` for editor support and
+  `pnpm typecheck` (`tsc --noEmit`) -- not used at runtime
+- vitest for unit tests
+- `child_process.spawn` or `execa` for git subprocesses
+- `commander` or `yargs` for CLI flags
+
+**TypeScript constraints (erasable syntax only):** no enums, namespaces, or parameter
+properties. Use `import type`, type aliases, and interfaces only.
+
+**ESM imports:** use `.ts` extensions in relative import paths (e.g.
+`import { loadSyncConfig } from '../lib/config.ts'`).
+
+PowerShell scripts under `scripts/` are legacy; remove after TypeScript parity is verified
+(see **Implementation order**).
+
+---
+
+## Performance
+
+Bootstrap replays ~69k queue entries. Slowness is dominated by **git subprocess fan-out**,
+not the host language.
+
+| Stage | Git calls | Frequency | Notes |
+|-------|-----------|-----------|-------|
+| Retrieve | 1x `git log` per source | Once per run | Already efficient |
+| Merge-sort | 0 | Once | Pure in-memory |
+| Replay (real) | ~4-5 per entry (target) | Per commit | Dominant cost |
+| Checkpoint | JSON write (+ optional `rev-parse`) | Every N entries | Tunable interval |
+| Dry-run | ~2 per entry | Per commit | Still heavy at 69k scale |
+
+**Per-commit replay path (optimized target):**
+
+1. `rev-list --parents` (mirror)
+2. `diff-tree -r -z` (mirror)
+3. `read-tree HEAD` (destination)
+4. `update-index --index-info` (destination, stdin)
+5. optional `rm --cached` (destination)
+6. single `git commit` with `GIT_*` env vars and message via stdin (`-F -`)
+
+**Optimizations to implement in TypeScript:**
+
+| Optimization | Expected impact | Risk |
+|--------------|-----------------|------|
+| Replace `write-tree` + `commit-tree` + `update-ref` with single `git commit` | -3 git calls per replayed commit | Low; same tree result |
+| Pass commit message via stdin instead of temp file | Removes per-commit disk I/O | Low |
+| Track `replayTip` in memory; skip post-commit `rev-parse` for checkpoint | -1 git call per entry | Low |
+| Checkpoint every N commits (e.g. 50-100) instead of every entry | Fewer JSON rewrites | Medium; coarser resume granularity |
+
+Bump `ReplaySpecVersion` to 5 if commit-step optimization changes replay SHAs at same
+upstream tips.
 
 ---
 
 ## Sync entry point
 
-[`scripts/Sync-Upstream.ps1`](../scripts/Sync-Upstream.ps1) -- sole script, no wrappers.
+[`src/cli/sync-upstream.ts`](../src/cli/sync-upstream.ts) -- sole entry, no wrappers.
 
-```powershell
-./scripts/Sync-Upstream.ps1 `
-  -DestinationPath .work/destination/msys2-uwp `
-  [-Clean] `
-  [-DryRun] `
-  [-MaxCommits <n>] `
-  [-Push]
+```bash
+node src/cli/sync-upstream.ts \
+  --destination-path .work/destination/msys2-uwp \
+  [--clean] \
+  [--dry-run] \
+  [--max-commits <n>]
 ```
 
-| Switch | Purpose |
-|--------|---------|
-| `-Clean` | Remove/reset `upstream`, `upstream-ports`, `upstream-ports-mingw` in destination clone before sync |
-| `-DryRun` | Replay locally, do not push |
-| `-MaxCommits` | Dev throttle |
-| `-Push` | Push three branches after sync (default true unless `-DryRun`) |
+Or via `package.json` script: `pnpm sync` (runs `node src/cli/sync-upstream.ts`).
 
-CI and local runs use the same invocation; first run and post-`-Clean` runs bootstrap automatically.
+| Flag | Purpose |
+|------|---------|
+| `--clean` | Remove/reset `upstream`, `upstream-ports`, `upstream-ports-mingw` in destination clone before sync |
+| `--dry-run` | Replay locally, do not push |
+| `--max-commits` | Dev throttle |
+| `--skip-fetch` | Skip mirror/destination fetch |
+| `--log-file` | UTF-8 log file path |
+| `--log-append` | Append to log file |
+| `--log-to-console` | Also print info lines when `--log-file` is set |
+| `--resume` | Continue from checkpoint |
+| `--clear-checkpoint` | Delete checkpoint file |
+
+Push three branches after sync unless `--dry-run`. CI and local runs use the same
+invocation; first run and post-`--clean` runs bootstrap automatically.
 
 ```mermaid
 flowchart TD
-  start[Sync-Upstream.ps1] --> clean{Clean flag?}
+  start[sync-upstream.ts] --> clean{Clean flag?}
   clean -->|yes| delete[Delete/reset 3 branches]
   clean -->|no| readRefs[Read branch SHAs]
   delete --> readRefs
@@ -60,30 +134,49 @@ flowchart TD
   bootstrap --> replay[Replay loop]
   incremental --> replay
   replay --> update[Update 3 branch tips]
-  update --> push[Push unless DryRun]
+  update --> push[Push unless dryRun]
 ```
+
+Dev helper CLIs (same runtime, optional for local debugging):
+
+- `src/cli/fetch-mirrors.ts`
+- `src/cli/retrieve-history.ts`
+- `src/cli/merge-queue.ts`
 
 ---
 
 ## Sync script implementation design
 
-Single entry [`scripts/Sync-Upstream.ps1`](../scripts/Sync-Upstream.ps1) dot-sources lib modules; no other top-level scripts.
+Single entry `src/cli/sync-upstream.ts` imports lib modules; no other top-level sync scripts.
 
-### Module layout (split Sync-Git)
+### Module layout
 
 ```
-scripts/
-  Sync-Upstream.ps1         # orchestration: retrieve -> sort -> replay -> push
+src/
+  cli/
+    sync-upstream.ts      # orchestration: retrieve -> sort -> replay -> push
+    fetch-mirrors.ts
+    retrieve-history.ts
+    merge-queue.ts
   lib/
-    Sync-Common.ps1         # Invoke-Git, logging, paths, Parse-GitCommitObject
-    Sync-Config.ps1         # Get-SyncConfig, clone URLs
-    Sync-Git.ps1            # destination/mirror clone, branch refs, -Clean, push
-    Sync-GitHistory.ps1    # retrieve upstream commit lists from cursor branches
-    Sync-GitQueue.ps1      # merge-sort two lists into replay order
-    Sync-GitReplay.ps1      # apply tree + create replay commit
+    git.ts                # spawn git, lock retry, UTF-8
+    log.ts                # Write-SyncLog equivalent
+    config.ts             # load sync.json, clone URLs
+    repos.ts              # destination/mirror clone, branch refs, --clean, push
+    history.ts            # retrieve upstream commit lists from cursor branches
+    queue.ts              # merge-sort two lists into replay order
+    replay.ts             # apply tree + create replay commit
+    checkpoint.ts         # resume checkpoint JSON
+  types/
+    replay-entry.ts
+tests/
+  *.test.ts               # vitest unit tests
+config/
+  sync.json               # committed as-is; read-only at runtime
 ```
 
-Load order: Common -> Config -> Git -> GitHistory -> GitQueue -> GitReplay.
+Import order: `git`/`log` -> `config` -> `repos` -> `history` -> `queue` -> `replay` ->
+`checkpoint`.
 
 ### Three-stage pipeline
 
@@ -97,7 +190,7 @@ flowchart LR
   end
 
   subgraph stage2 [2 Sort]
-    listP --> merge[Merge-ReplayCommitQueues]
+    listP --> merge[mergeReplayCommitQueues]
     listM --> merge
     merge --> queue[sorted replay queue]
   end
@@ -110,16 +203,16 @@ flowchart LR
 
 | Stage | Module | Input | Output |
 |-------|--------|-------|--------|
-| **1 Retrieve** | `Sync-GitHistory.ps1` | Cursor SHAs on `upstream-ports` / `upstream-ports-mingw`; mirror tips | Two lists in **git history order** (oldest first) |
-| **2 Sort** | `Sync-GitQueue.ps1` | Two lists | One merged queue in **replay rank order** |
-| **3 Replay** | `Sync-GitReplay.ps1` | Merged queue + current `upstream` tip | New commits on `upstream`; updated cursor branches |
+| **1 Retrieve** | `history.ts` | Cursor SHAs on `upstream-ports` / `upstream-ports-mingw`; mirror tips | Two lists in **git history order** (oldest first) |
+| **2 Sort** | `queue.ts` | Two lists | One merged queue in **replay rank order** |
+| **3 Replay** | `replay.ts` | Merged queue + current `upstream` tip | New commits on `upstream`; updated cursor branches |
 
 **Cursor semantics**
 
 - `upstream-ports` HEAD = upstream SHA of the **last replayed** MSYS2-packages commit (already done).
 - `upstream-ports-mingw` HEAD = same for MINGW-packages.
 - **Incremental retrieve range:** `{cursorSha}..{mirrorTip}` excluding cursor itself -- only commits **not yet replayed**.
-- **Full retrieve** (any of the three branches missing, or after `-Clean`): `{root}..{mirrorTip}` -- entire history for that source; cursor treated as `$null`.
+- **Full retrieve** (any of the three branches missing, or after `--clean`): `{root}..{mirrorTip}` -- entire history for that source; cursor treated as `null`.
 
 Each source list is built with `git log --reverse` so commits appear in **upstream git order** (parent before child).
 
@@ -139,19 +232,19 @@ Each source list is built with `git log --reverse` so commits appear in **upstre
 **Pseudocode**
 
 ```
-function Compare-ReplayRank(a, b):
+function compareReplayRank(a, b):
   if a.CommitterDateUnix != b.CommitterDateUnix: return sign(a - b)
   if a.AuthorDateUnix != b.AuthorDateUnix: return sign(a - b)
   if a.SourceId != b.SourceId: return strcmp(a.SourceId, b.SourceId)
   return strcmp(a.Sha, b.Sha)
 
-function Merge-ReplayCommitQueues(portsList, mingwList):
+function mergeReplayCommitQueues(portsList, mingwList):
   result = []
   i = 0; j = 0
   while i < len(portsList) or j < len(mingwList):
     if i >= len(portsList): append mingwList[j++]; continue
     if j >= len(mingwList): append portsList[i++]; continue
-    if Compare-ReplayRank(portsList[i], mingwList[j]) <= 0:
+    if compareReplayRank(portsList[i], mingwList[j]) <= 0:
       append portsList[i++]
     else:
       append mingwList[j++]
@@ -176,7 +269,7 @@ Merged: P1(100), M1(105), P2(110), M2(115).
 
 If M1 date were 108: merged order is P1(100), M1(108), P2(110), M2(115) -- M1 slots between P1 and P2 by committer date.
 
-**After sort (incremental only):** `Filter-ReplayQueueByAge` removes entries whose committer date is newer than `now - Replay.MinReplayAgeMinutes`. Full retrieve skips age filter.
+**After sort (incremental only):** `filterReplayQueueByAge` removes entries whose committer date is newer than `now - Replay.MinReplayAgeMinutes`. Full retrieve skips age filter.
 
 ### Linearizing non-linear upstream history
 
@@ -216,7 +309,7 @@ flowchart TB
 2. Compute **upstream file delta**: `diff-tree upstreamSha^1 upstreamSha` on mirror (first parent; merge commits included in retrieve list).
 3. **Rewrite paths** into that entry's `DestSubdir` only; other subdir unchanged in index.
 4. Empty mapped delta + `SkipEmptyTreeDiff`: skip destination commit; still advance source cursor.
-5. Else `New-ReplayCommit` with **single parent = `replayTip`**; new SHA becomes next `replayTip`.
+5. Else `newReplayCommit` with **single parent = `replayTip`**; new SHA becomes next `replayTip`.
 
 Never `git merge` on destination; never a destination commit with two parents. Upstream merge **topology** is dropped; only **file deltas** and **metadata** are replayed.
 
@@ -232,7 +325,7 @@ No shared paths between sources. A ports entry touches only `ports/*`; ports-min
 
 ### Data: replay commit entry
 
-Each queue item is a hashtable (or `[PSCustomObject]`) produced by `Get-UpstreamCommitEntries`:
+Each queue item is a `ReplayCommitEntry` produced by `getUpstreamCommitEntries`:
 
 | Field | Type | Source |
 |-------|------|--------|
@@ -245,92 +338,91 @@ Each queue item is a hashtable (or `[PSCustomObject]`) produced by `Get-Upstream
 | `Subject` | string | first line of message |
 | `Body` | string | rest of message (may be empty) |
 
-No `ParentSha` on the entry. See **Linearizing non-linear upstream history** above: destination parent is always `replayTip`; upstream `sha^1` is resolved inside `Apply-UpstreamCommitToIndex` when computing the file delta.
+No `ParentSha` on the entry. See **Linearizing non-linear upstream history** above: destination parent is always `replayTip`; upstream `sha^1` is resolved inside `applyUpstreamCommitToIndex` when computing the file delta.
 
-### `Sync-Upstream.ps1` algorithm
+### `sync-upstream.ts` algorithm
 
 ```mermaid
 flowchart TD
   A[Parse params + load config] --> B[Init repos + optional Clean]
   B --> C[Read cursor SHAs from upstream-ports / upstream-ports-mingw]
-  C --> D[Stage1: Get-SourceReplayHistory for each source]
-  D --> E[Stage2: Merge-ReplayCommitQueues]
+  C --> D[Stage1: getSourceReplayHistory for each source]
+  D --> E[Stage2: mergeReplayCommitQueues]
   E --> F{Incremental?}
-  F -->|yes| G[Filter-ReplayQueueByAge]
+  F -->|yes| G[filterReplayQueueByAge]
   F -->|no| H[Use merged queue as-is]
   G --> I{Queue empty?}
   H --> I
   I -->|yes| Z[Exit 0]
   I -->|no| J[Stage3: replay loop one-by-one]
   J --> K[Update upstream + cursor branch refs]
-  K --> L[Push unless DryRun]
+  K --> L[Push unless dryRun]
 ```
 
 **Step-by-step:**
 
-1. **Params / config** -- as before.
+1. **Params / config** -- load `config/sync.json`.
 
-2. **Prepare repos** -- `Sync-Git.ps1`: mirrors, destination, fetch remotes.
+2. **Prepare repos** -- `repos.ts`: mirrors, destination, fetch remotes.
 
-3. **Clean (optional)** -- `Clear-DestinationSyncBranches`.
+3. **Clean (optional)** -- `clearDestinationSyncBranches`.
 
 4. **Read cursors** -- from destination branch HEADs:
-   - `cursorPorts` = `Get-DestinationBranchSha(CursorPorts)` or `$null`
-   - `cursorPortsMingw` = `Get-DestinationBranchSha(CursorPortsMingw)` or `$null`
+   - `cursorPorts` = `getDestinationBranchSha(CursorPorts)` or `null`
+   - `cursorPortsMingw` = `getDestinationBranchSha(CursorPortsMingw)` or `null`
    - `isFullReplay` = any of three branches missing
 
 5. **Checkout** -- full replay: `upstream` at BaseCommit; incremental: `upstream` at current replay tip.
 
-6. **Stage 1 -- Retrieve** (`Sync-GitHistory.ps1`)
-   - `Get-SourceReplayHistory -Source Ports -AfterSha $cursorPorts -UntilSha $mirrorTip`
-   - `Get-SourceReplayHistory -Source PortsMingw -AfterSha $cursorPortsMingw -UntilSha $mirrorTip`
-   - Each returns `[ReplayCommitEntry[]]` in git `--reverse` order
+6. **Stage 1 -- Retrieve** (`history.ts`)
+   - `getSourceReplayHistory` for Ports and PortsMingw
+   - Each returns `ReplayCommitEntry[]` in git `--reverse` order
 
-7. **Stage 2 -- Sort** (`Sync-GitQueue.ps1`)
-   - `Merge-ReplayCommitQueues -PortsList -PortsMingwList`
-   - If incremental: `Filter-ReplayQueueByAge`
-   - Optional `-MaxCommits` truncate
+7. **Stage 2 -- Sort** (`queue.ts`)
+   - `mergeReplayCommitQueues`
+   - If incremental: `filterReplayQueueByAge`
+   - Optional `--max-commits` truncate
 
-8. **Stage 3 -- Replay one-by-one** (`Sync-GitReplay.ps1`)
+8. **Stage 3 -- Replay one-by-one** (`replay.ts`)
    - For each entry in merged queue (in order):
-     - `Apply-UpstreamCommitToIndex` (skip empty diff if configured)
-     - `New-ReplayCommit` (or skip commit, still track cursor for that source)
+     - `applyUpstreamCommitToIndex` (skip empty diff if configured)
+     - `newReplayCommit` (or skip commit, still track cursor for that source)
      - Advance local `replayTip`
    - Track `lastPortsSha` / `lastPortsMingwSha` per source processed
 
-9. **Update refs** -- `Sync-Git.ps1`: set `upstream`, `upstream-ports`, `upstream-ports-mingw` branch SHAs.
+9. **Update refs** -- `repos.ts`: set `upstream`, `upstream-ports`, `upstream-ports-mingw` branch SHAs.
 
-10. **Push** -- `Push-DestinationBranches` unless `-DryRun`.
+10. **Push** -- `pushDestinationBranches` unless `--dry-run`.
 
-### Sync-GitHistory.ps1 (Phase 1b -- retrieve)
-
-| Function | Behavior |
-|----------|----------|
-| `Get-SourceReplayHistory` | `git log --reverse AfterSha..UntilSha` on mirror remote; parse to `[ReplayCommitEntry]` |
-| `Get-MirrorTipSha` | Current mirror `master` tip |
-| `Resolve-HistoryStartSha` | `$null` cursor -> repo root; else start after cursor (exclusive) |
-
-Optional CSV cache under `.work/cache/replay-log/` when mirror tip unchanged.
-
-### Sync-GitQueue.ps1 (Phase 1b -- sort)
+### `history.ts` (Phase 1b -- retrieve)
 
 | Function | Behavior |
 |----------|----------|
-| `Compare-ReplayRank` | Implements 4-key comparison (see Sort algorithm above) |
-| `Merge-ReplayCommitQueues` | Two-pointer merge of two history-ordered lists |
-| `Filter-ReplayQueueByAge` | Incremental only; drop fresh commits |
-| `Get-ReplayAgeCutoffUnix` | Cutoff epoch for age gate |
+| `getSourceReplayHistory` | `git log --reverse AfterSha..UntilSha` on mirror; parse to `ReplayCommitEntry[]` |
+| `getMirrorTipSha` | Current mirror `master` tip |
+| `resolveHistoryStartSha` | `null` cursor -> repo root; else start after cursor (exclusive) |
+
+Optional cache under `.work/cache/replay-log/` when mirror tip unchanged.
+
+### `queue.ts` (Phase 1b -- sort)
+
+| Function | Behavior |
+|----------|----------|
+| `compareReplayRank` | Implements 4-key comparison (see Sort algorithm above) |
+| `mergeReplayCommitQueues` | Two-pointer merge of two history-ordered lists |
+| `filterReplayQueueByAge` | Incremental only; drop fresh commits |
+| `getReplayAgeCutoffUnix` | Cutoff epoch for age gate |
 
 Unit tests must cover: rank comparison tie-breakers, merge stability within source, cross-source interleave, age filter.
 
-### Sync-GitReplay.ps1 (Phase 1c -- replay one-by-one)
+### `replay.ts` (Phase 1c -- replay one-by-one)
 
 | Function | Behavior |
 |----------|----------|
-| `Format-ReplayCommitMessage` | LF-only template: `[<source-id>] <subject>\n\n<body>\nSource: msys2/<repo>@<sha>`; omit blank line before Source when body empty |
-| `Format-GitReplayDateEnv` | `@<unix>` format for GIT_AUTHOR_DATE / GIT_COMMITTER_DATE |
-| `Apply-UpstreamCommitToIndex` | Diff upstream commit vs its first parent on mirror (`sha^1`); map paths into one `DestSubdir` only; return `$false` if mapped diff empty |
-| `New-ReplayCommit` | Parent on destination is always current `replayTip` (linear `upstream` only) |
+| `formatReplayCommitMessage` | LF-only template: `[<source-id>] <subject>\n\n<body>\nSource: msys2/<repo>@<sha>`; omit blank line before Source when body empty |
+| `formatGitReplayDateEnv` | `@<unix>` format for GIT_AUTHOR_DATE / GIT_COMMITTER_DATE |
+| `applyUpstreamCommitToIndex` | Diff upstream commit vs its first parent on mirror (`sha^1`); map paths into one `DestSubdir` only; return `false` if mapped diff empty |
+| `newReplayCommit` | Parent on destination is always current `replayTip` (linear `upstream` only); prefer single `git commit` after index update |
 
 Tree rules: prefix rewrite only; no timestamp reliance; never create merge commits on destination.
 
@@ -339,99 +431,163 @@ Tree rules: prefix rewrite only; no timestamp reliance; never create merge commi
 | Situation | Action |
 |-----------|--------|
 | Empty mapped diff | Skip commit; advance source cursor |
-| Replay failure mid-batch | Stop; do not push; destination stays at last good local state |
+| Replay failure mid-batch | Stop; do not push; destination stays at last good local state; checkpoint retained for `--resume` |
 | Push rejected | Fail with error; operator investigates |
 | Missing BaseCommit in clone | Fetch destination repo history first; fail if still missing |
-| Upstream force-push / missing SHA | Fail; human runs `-Clean` and full replay |
+| Upstream force-push / missing SHA | Fail; human runs `--clean` and full replay |
 
 ### Determinism
 
 Same inputs produce identical `upstream` SHAs:
 
-- `ReplaySpecVersion` + `config/config.psd1` path mapping
+- `ReplaySpecVersion` + `config/sync.json` path mapping
 - `Destination.BaseCommit`
 - Upstream mirror tips at fetch time
 - Implicit full vs incremental (branch presence) affects age gate only, not order of committed entries
 
-Full rebuild: `-Clean` then sync. Incremental at same tips adds zero commits.
+Full rebuild: `--clean` then sync. Incremental at same tips adds zero commits.
 
 ### Logging
 
-`Write-SyncLog` at INFO for: config load, branch SHAs, queue length, every 100 replay commits, push result. `-MaxCommits` logged when throttling.
+`writeSyncLog` at INFO for: config load, branch SHAs, queue length, every 100 replay commits, push result. `--max-commits` logged when throttling.
+
+`--log-file` writes UTF-8 (no BOM) log files; suppresses console info lines unless `--log-to-console`.
+
+### Resume checkpoint
+
+Interrupted runs (dry-run or real replay) save progress to
+`.work/cache/replay-log/replay-checkpoint.json` (every N entries, default tunable in code):
+
+| Field | Purpose |
+|-------|---------|
+| `LastPortsSha` / `LastPortsMingwSha` | Upstream cursors for the next retrieve |
+| `ReplayTipSha` | Destination `upstream` tip after last committed replay (real sync only) |
+| `ProcessedCount` | Total entries processed across runs |
+| `DryRun` | Must match the resumed run (`--dry-run` or not) |
+| `ReplaySpecVersion` | Must match `config/sync.json` |
+
+Re-run with `--resume` (and the same `--dry-run` setting). Retrieve rebuilds the queue from checkpoint cursors, so only remaining entries are processed. `--clean` or `--clear-checkpoint` deletes the file. Successful completion clears it automatically.
+
+Dry-run does not modify the destination index or create commits; it only diffs upstream trees to detect empty skips.
+
+### Text encoding (UTF-8, no loss)
+
+All sync text I/O uses **UTF-8 without BOM** so upstream author names, emails, paths, and commit messages round-trip without mojibake.
+
+| Layer | Handling |
+|-------|----------|
+| Node.js | `LANG`/`LC_ALL` = `C.UTF-8`; UTF-8 stdin/stdout/stderr on git subprocesses |
+| Git subprocess | `git.ts` spawn wrapper sets UTF-8 encoding on streams |
+| Git repos | `setGitRepoUtf8Encoding` on each mirror/destination clone: `i18n.logOutputEncoding`, `i18n.commitEncoding`, `core.quotepath=false` |
+| Commit messages | LF-only; pass via stdin to `git commit -F -` |
+| Log / checkpoint / cache JSON | `fs.writeFileSync` or `WriteStream` with UTF-8 no BOM |
+| CI workflows | `git config --global i18n.logOutputEncoding utf-8` and `i18n.commitEncoding utf-8` in setup steps |
+
+Git metadata is read with UTF-8 stdout. Path lists use `-z` NUL-separated git output where non-ASCII paths are possible.
 
 ---
 
 ## Script layout and phased implementation
 
-Outer repo phases unchanged; **Phase 1** split into four sub-phases.
+**Phase 1** split into four sub-phases. Legacy PowerShell under `scripts/` remains until
+Phase 3 parity check, then removed in Phase 4.
+
+### Phase 0 -- Scaffold + port pure logic
+
+- Add `package.json`, `tsconfig.json` (`noEmit`, `erasableSyntaxOnly`), vitest
+- No build step; no `dist/` output
+- Example `package.json` scripts:
+
+```json
+{
+  "type": "module",
+  "engines": { "node": ">=22.18.0" },
+  "scripts": {
+    "sync": "node src/cli/sync-upstream.ts",
+    "fetch-mirrors": "node src/cli/fetch-mirrors.ts",
+    "retrieve-history": "node src/cli/retrieve-history.ts",
+    "merge-queue": "node src/cli/merge-queue.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  }
+}
+```
+
+- Port unit-testable modules first (no git repo needed):
+  - `compareReplayRank` / `mergeReplayCommitQueues`
+  - `formatReplayCommitMessage`, `formatGitReplayDateEnv`
+  - upstream commit log metadata parser
+  - `parseGitCommitObject`
+- Port existing unit tests to vitest; `pnpm test` green
 
 ### Phase 1a -- Foundation (config + git workspace + destination branches)
 
-Everything needed before replay logic: load constants, run git, open repos, read/write the three destination branches, and `-Clean`.
+Everything needed before replay logic: load constants, run git, open repos, read/write the three destination branches, and `--clean`.
 
 #### Files
 
 | File | Role |
 |------|------|
-| [`config/config.psd1`](../config/config.psd1) | Fixed constants; committed directly, read-only at runtime |
-| [`scripts/lib/Sync-Common.ps1`](../scripts/lib/Sync-Common.ps1) | Git shell, logging, paths |
-| [`scripts/lib/Sync-Config.ps1`](../scripts/lib/Sync-Config.ps1) | Load config.psd1, URL helpers |
-| [`scripts/lib/Sync-Git.ps1`](../scripts/lib/Sync-Git.ps1) | Clone, branch refs, `-Clean`, push only |
+| [`config/sync.json`](../config/sync.json) | Fixed constants; committed directly, read-only at runtime |
+| [`src/lib/git.ts`](../src/lib/git.ts) | Git spawn, lock retry, UTF-8 |
+| [`src/lib/log.ts`](../src/lib/log.ts) | Logging, paths |
+| [`src/lib/config.ts`](../src/lib/config.ts) | Load sync.json, URL helpers |
+| [`src/lib/repos.ts`](../src/lib/repos.ts) | Clone, branch refs, `--clean`, push only |
 
-#### [`config/config.psd1`](../config/config.psd1) (committed as-is)
+#### [`config/sync.json`](../config/sync.json) (committed as-is)
 
 Edit in git only when values change (rare).
 
-```powershell
-@{
-    ReplaySpecVersion = 4
-    Destination = @{
-        Owner            = 'msys2-uwp'
-        Repo             = 'msys2-uwp'
-        BaseCommit       = '6fc20894663468a04dd4986a8b1c15a9d5ae8649'
-        Branches         = @{
-            Replay           = 'upstream'
-            CursorPorts      = 'upstream-ports'
-            CursorPortsMingw = 'upstream-ports-mingw'
-        }
+```json
+{
+  "ReplaySpecVersion": 4,
+  "Destination": {
+    "Owner": "msys2-uwp",
+    "Repo": "msys2-uwp",
+    "BaseCommit": "6fc20894663468a04dd4986a8b1c15a9d5ae8649",
+    "Branches": {
+      "Replay": "upstream",
+      "CursorPorts": "upstream-ports",
+      "CursorPortsMingw": "upstream-ports-mingw"
     }
-    Sources = @{
-        Ports = @{
-            Owner       = 'msys2'
-            Repo        = 'MSYS2-packages'
-            Branch      = 'master'
-            DestSubdir  = 'ports'
-            SortKey     = 'ports'
-        }
-        PortsMingw = @{
-            Owner       = 'msys2'
-            Repo        = 'MINGW-packages'
-            Branch      = 'master'
-            DestSubdir  = 'ports-mingw'
-            SortKey     = 'ports-mingw'
-        }
+  },
+  "Sources": {
+    "Ports": {
+      "Owner": "msys2",
+      "Repo": "MSYS2-packages",
+      "Branch": "master",
+      "DestSubdir": "ports",
+      "SortKey": "ports"
+    },
+    "PortsMingw": {
+      "Owner": "msys2",
+      "Repo": "MINGW-packages",
+      "Branch": "master",
+      "DestSubdir": "ports-mingw",
+      "SortKey": "ports-mingw"
     }
-    Mirrors = @{
-        Owner               = 'msys2-uwp'
-        Ports               = 'MSYS2-packages-mirror'
-        PortsMingw          = 'MINGW-packages-mirror'
-        SyncIntervalMinutes = 5
-        DispatchEventType   = 'upstream-updated'
-    }
-    Replay = @{
-        MinReplayAgeMinutes = 5
-        SkipEmptyTreeDiff   = $true
-        LineEnding          = 'LF'
-        CommitMessagePrefix = $true
-    }
-    PollIntervalMinutes        = 60
-    DailyReconciliationCron    = '0 3 * * *'
+  },
+  "Mirrors": {
+    "Owner": "msys2-uwp",
+    "Ports": "MSYS2-packages-mirror",
+    "PortsMingw": "MINGW-packages-mirror",
+    "SyncIntervalMinutes": 5,
+    "DispatchEventType": "upstream-updated"
+  },
+  "Replay": {
+    "MinReplayAgeMinutes": 5,
+    "SkipEmptyTreeDiff": true,
+    "LineEnding": "LF",
+    "CommitMessagePrefix": true
+  },
+  "PollIntervalMinutes": 60,
+  "DailyReconciliationCron": "0 3 * * *"
 }
 ```
 
 | Key | Purpose |
 |-----|---------|
-| `ReplaySpecVersion` | Algorithm version |
+| `ReplaySpecVersion` | Algorithm version; bump to 5 if commit-step optimization changes replay SHAs |
 | `Destination.*` | Target repo, base commit, branch names |
 | `Sources.*` | Upstream repos, paths, sort keys |
 | `Mirrors.*` | Mirror repos, sync interval, dispatch event |
@@ -441,33 +597,32 @@ Edit in git only when values change (rare).
 
 Read-only at runtime.
 
-#### `Sync-Common.ps1` functions
+#### `git.ts` / `log.ts` functions
 
-- `Write-SyncLog`, `Get-SyncRepoRoot`, `Get-WorkDirectory`
-- `Invoke-Git`, `Invoke-GitText`, `Invoke-GitStdin` -- cross-platform git wrapper
-- `Set-SyncUtf8Environment`, `Clear-GitLockFiles`
+- `writeSyncLog`, `getSyncRepoRoot`, `getWorkDirectory`
+- `runGit`, `runGitText`, `runGitStdin` -- cross-platform git wrapper
+- `setSyncUtf8Environment`, `clearGitLockFiles`
 
-#### `Sync-Config.ps1` functions
+#### `config.ts` functions
 
-- `Get-SyncConfig` -- `Import-PowerShellDataFile` on `config/config.psd1`
-- `Get-SourceCloneUrl`, `Get-DestinationCloneUrl`, `Get-MirrorCloneUrl`
+- `loadSyncConfig` -- read `config/sync.json`
+- `getSourceCloneUrl`, `getDestinationCloneUrl`, `getMirrorCloneUrl`
 
-#### `Sync-Git.ps1` functions (workspace + branches only)
+#### `repos.ts` functions (workspace + branches only)
 
 | Function | Purpose |
 |----------|---------|
-| `Initialize-MirrorRepository` | Clone/fetch mirror into `.work/mirrors/<source>` |
-| `Initialize-DestinationRepository` | Clone/open destination at `-DestinationPath` |
-| `Add-SourceRemotesToDestination` | Add mirror remotes; `git fetch` |
-| `Get-DestinationBranchSha` | `git rev-parse <branch>`; `$null` if missing |
-| `Test-AllSyncBranchesExist` | True only when all three branch names resolve |
-| `Set-DestinationBranchSha` | `git branch -f <branch> <sha>` |
-| `Clear-DestinationSyncBranches` | **`-Clean`**: reset `upstream` to BaseCommit; delete cursor branches |
-| `Push-DestinationBranches` | Push `upstream`, `upstream-ports`, `upstream-ports-mingw` |
+| `initializeMirrorRepository` | Clone/fetch mirror into `.work/mirrors/<source>` |
+| `initializeDestinationRepository` | Clone/open destination at `--destination-path` |
+| `getDestinationBranchSha` | `git rev-parse <branch>`; `null` if missing |
+| `testAllSyncBranchesExist` | True only when all three branch names resolve |
+| `setDestinationBranchSha` | `git branch -f <branch> <sha>` |
+| `clearDestinationSyncBranches` | **`--clean`**: reset `upstream` to BaseCommit; delete cursor branches |
+| `pushDestinationBranches` | Push `upstream`, `upstream-ports`, `upstream-ports-mingw` |
 
-#### `-Clean` (part of 1a)
+#### `--clean` (part of 1a)
 
-`Clear-DestinationSyncBranches`:
+`clearDestinationSyncBranches`:
 
 1. Reset `upstream` to `Destination.BaseCommit` (or delete if base not in clone)
 2. Delete `upstream-ports` and `upstream-ports-mingw` locally
@@ -477,61 +632,74 @@ After clean, any missing branch triggers full replay on the next sync pass.
 
 #### Phase 1a done when
 
-- `Get-SyncConfig` loads committed psd1
-- Temp-repo test: create three branches, read SHAs, `-Clean` clears them, `Test-AllSyncBranchesExist` is false
+- `loadSyncConfig` loads committed sync.json
+- Temp-repo test: create three branches, read SHAs, `--clean` clears them, `testAllSyncBranchesExist` is false
 - Can clone destination, fetch mirrors, push three branches (no replay yet)
 
 ---
 
-### Phase 1b -- Retrieve + sort (`Sync-GitHistory.ps1`, `Sync-GitQueue.ps1`)
+### Phase 1b -- Retrieve + sort (`history.ts`, `queue.ts`)
 
 Implements **Stage 1** and **Stage 2** from implementation design.
 
-- **Retrieve:** `Get-SourceReplayHistory` from `upstream-ports` / `upstream-ports-mingw` cursor SHAs to mirror tip
-- **Sort:** `Compare-ReplayRank`, `Merge-ReplayCommitQueues` (4-key merge, not global sort)
+- **Retrieve:** `getSourceReplayHistory` from `upstream-ports` / `upstream-ports-mingw` cursor SHAs to mirror tip
+- **Sort:** `compareReplayRank`, `mergeReplayCommitQueues` (4-key merge, not global sort)
 - Local try-it commands: [`run-local.md`](run-local.md)
-- Tests: `./tests/Test-Sync.ps1`
+- Tests: `pnpm test`
 
-### Phase 1c -- Replay one-by-one (`Sync-GitReplay.ps1`)
+### Phase 1c -- Replay one-by-one (`replay.ts`)
 
 Implements **Stage 3** from implementation design.
 
-- `Format-ReplayCommitMessage`, `Format-GitReplayDateEnv`, `Apply-UpstreamCommitToIndex`, `New-ReplayCommit`
+- `formatReplayCommitMessage`, `formatGitReplayDateEnv`, `applyUpstreamCommitToIndex`, `newReplayCommit`
 - Process merged queue strictly in order; one destination commit per queue entry (or skip empty diff)
+- Optimized commit path: single `git commit` after index update
 
 ### Phase 1d -- Orchestration
 
-`Sync-Upstream.ps1` wires: retrieve -> sort -> replay -> update refs -> push (see algorithm above).
+`sync-upstream.ts` wires: retrieve -> sort -> replay -> update refs -> push (see algorithm above).
+
+Flags: `--clean`, `--dry-run`, `--skip-fetch`, `--max-commits`, `--log-file`, `--log-append`, `--log-to-console`, `--resume`, `--clear-checkpoint`.
+
+Verify against legacy PowerShell on `--dry-run --max-commits 100` (same skip/replay decisions) before removing PS.
+
+### Phase 4 -- Remove PowerShell + update CI/docs
+
+- Remove `scripts/*.ps1`, `scripts/lib/*.ps1`, `tests/*.Tests.ps1`, `config/config.psd1`
+- Update [`run-local.md`](run-local.md) with `pnpm` commands
+- Consolidate CI to single [`sync-upstream.yml`](../.github/workflows/sync-upstream.yml) calling TS CLI
+- Update [`AGENTS.md`](../AGENTS.md) and cursor rules (replace `powershell-scripts.mdc` with TypeScript rules)
 
 ---
 
 ## Phase 2 -- GitHub Actions
 
-CI reads timing and repo constants from [`config/config.psd1`](../config/config.psd1) (Phase 1a); workflow YAML does not duplicate them as the source of truth.
+CI reads timing and repo constants from [`config/sync.json`](../config/sync.json) (Phase 1a); workflow YAML does not duplicate them as the source of truth.
 
 ### Poll and reconciliation schedules
 
-| config.psd1 key | Value | Workflow mapping |
-|-----------------|-------|------------------|
+| sync.json key | Value | Workflow mapping |
+|---------------|-------|------------------|
 | `PollIntervalMinutes` | `60` | Tolerance poll cron: `0 * * * *` |
 | `DailyReconciliationCron` | `'0 3 * * *'` | Daily reconciliation cron (same string in YAML) |
 
-GitHub Actions requires static cron in YAML; workflow comments reference config.psd1 as source of truth. Preflight step logs both values via `Get-SyncConfig`.
+GitHub Actions requires static cron in YAML; workflow comments reference sync.json as source of truth. Preflight step logs both values via `loadSyncConfig`.
 
 ### [`sync-upstream.yml`](../.github/workflows/sync-upstream.yml) changes
 
 | Item | Change |
 |------|--------|
-| Sync script | `Sync-Upstream.ps1` |
+| Runtime | `actions/setup-node` (Node 22.18+), `pnpm install` |
+| Sync script | `pnpm sync` or `node src/cli/sync-upstream.ts` |
 | Triggers | `repository_dispatch`, schedule, `workflow_dispatch` with optional `clean` input |
-| Schedule | `# PollIntervalMinutes=60, DailyReconciliationCron in config/config.psd1` |
+| Schedule | `# PollIntervalMinutes=60, DailyReconciliationCron in config/sync.json` |
 | Push | Three destination branches (`upstream`, `upstream-ports`, `upstream-ports-mingw`) |
 | Workflows | Single `sync-upstream.yml` (fold bootstrap/rebuild/verify into dispatch inputs if needed) |
 
 ### Phase 2 done when
 
-- Workflow runs `Sync-Upstream.ps1`; preflight logs `PollIntervalMinutes` from config
-- `-Clean` available via `workflow_dispatch` input
+- Workflow runs TypeScript sync CLI; preflight logs `PollIntervalMinutes` from config
+- `--clean` available via `workflow_dispatch` input
 - Trigger section documents `PollIntervalMinutes` and `DailyReconciliationCron`
 
 ---
@@ -540,15 +708,16 @@ GitHub Actions requires static cron in YAML; workflow comments reference config.
 
 ### [`AGENTS.md`](../AGENTS.md) and [`.cursor/rules/project-overview.mdc`](../.cursor/rules/project-overview.mdc)
 
-- All sync constants in committed `config/config.psd1` only (see Phase 1a key table)
+- All sync constants in committed `config/sync.json` only (see Phase 1a key table)
 - Cursors: destination branch HEADs
-- Bootstrap: implicit when branches missing; `-Clean` to reset
-- Poll tolerance: `PollIntervalMinutes` in config.psd1
+- Bootstrap: implicit when branches missing; `--clean` to reset
+- Poll tolerance: `PollIntervalMinutes` in sync.json
+- Runtime: Node.js 22.18+, TypeScript (native type stripping), vitest
 
 ### Phase 2 workflow (see Phase 2 section above)
 
-- [`sync-upstream.yml`](../.github/workflows/sync-upstream.yml): `Sync-Upstream.ps1`, preflight logs config poll values, cron comments reference config.psd1
-- `workflow_dispatch` input `clean` mapped to `-Clean`
+- [`sync-upstream.yml`](../.github/workflows/sync-upstream.yml): TypeScript sync CLI, preflight logs config poll values, cron comments reference sync.json
+- `workflow_dispatch` input `clean` mapped to `--clean`
 
 ---
 
@@ -556,16 +725,29 @@ GitHub Actions requires static cron in YAML; workflow comments reference config.
 
 - Fresh destination (no branches) -> full bootstrap, three branches created
 - Second run (all branches exist) -> incremental only, age gate active
-- `-Clean` then run -> identical result to fresh bootstrap at same upstream tips
+- `--clean` then run -> identical result to fresh bootstrap at same upstream tips
 - Incremental at unchanged tips -> zero new commits
+
+---
+
+## Risks and mitigations
+
+| Risk | Mitigation |
+|------|------------|
+| Replay SHA drift after `git commit` optimization | Bump `ReplaySpecVersion`; document `--clean` rebuild; compare small batches before/after |
+| NUL-delimited `diff-tree -z` parsing bugs | Port parser logic literally; keep `-z` tests with non-ASCII paths |
+| UTF-8 author names / commit messages | Keep `LANG=C.UTF-8`, UTF-8 stdin/stdout, LF-only messages |
+| 69k-commit bootstrap runtime still hours | Set CI timeout appropriately; log commits/sec; tune checkpoint interval |
+| Windows local dev | Node + git works on win32; test `pnpm sync` locally |
 
 ---
 
 ## Implementation order
 
-1. **1a** Foundation (config + git workspace + branches + clean)
-2. **1b** Queue + tests (can start in parallel once 1a Common helpers exist)
-3. **1c** Replay commit (extends Sync-Git.ps1)
-4. **1d** Orchestration
-5. Docs pass
-6. Phase 2 CI
+1. **0** Scaffold + port pure logic and vitest
+2. **1a** Foundation (config + git workspace + branches + clean)
+3. **1b** Queue + tests (can start in parallel once 1a git helpers exist)
+4. **1c** Replay commit with optimized git path
+5. **1d** Orchestration; parity check vs legacy PowerShell
+6. **4** Remove PowerShell; docs pass
+7. Phase 2 CI
