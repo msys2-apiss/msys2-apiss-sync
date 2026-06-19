@@ -225,6 +225,30 @@ function ConvertFrom-Base64Utf8 {
     return [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Encoded))
 }
 
+function Format-CsvField {
+    param([AllowNull()][string] $Value)
+
+    if ($null -eq $Value) {
+        return '""'
+    }
+
+    if ($Value -match '[,"\r\n]') {
+        return '"' + ($Value -replace '"', '""') + '"'
+    }
+
+    return $Value
+}
+
+function Format-CsvQuotedField {
+    param([AllowNull()][string] $Value)
+
+    if ($null -eq $Value) {
+        return '""'
+    }
+
+    return '"' + ($Value -replace '"', '""') + '"'
+}
+
 function Write-JsonString {
     param(
         [Parameter(Mandatory)][System.IO.StreamWriter] $Writer,
@@ -248,14 +272,64 @@ function Write-JsonString {
     $Writer.Write('"')
 }
 
+function Split-CommitMessage {
+    param([AllowNull()][string] $Message)
+
+    $message = ConvertTo-UnixLineEndings -Text $Message
+    $message = $message.TrimEnd("`n")
+    if (-not $message) {
+        return @{ Subject = ''; Body = '' }
+    }
+
+    $lines = $message -split "`n"
+    $subject = $lines[0]
+    if ($lines.Count -eq 1) {
+        return @{ Subject = $subject; Body = '' }
+    }
+
+    $bodyStart = 1
+    if ($lines.Count -gt 1 -and $lines[1] -eq '') {
+        $bodyStart = 2
+    }
+
+    $body = if ($bodyStart -lt $lines.Count) {
+        ($lines[$bodyStart..($lines.Count - 1)] -join "`n").TrimEnd()
+    }
+    else {
+        ''
+    }
+
+    return @{
+        Subject = $subject
+        Body = $body
+    }
+}
+
 function Get-CommitMetadataFromStoredEntry {
     param([Parameter(Mandatory)] $Entry)
 
     if ($null -ne $Entry.PSObject.Properties['AuthorName']) {
+        if ($null -ne $Entry.PSObject.Properties['Message'] -and $Entry.Message) {
+            $split = Split-CommitMessage -Message $Entry.Message
+            return [pscustomobject]@{
+                AuthorName = $Entry.AuthorName
+                AuthorEmail = $Entry.AuthorEmail
+                AuthorDate = [int64]$Entry.AuthorDate
+                CommitterName = $Entry.CommitterName
+                CommitterEmail = $Entry.CommitterEmail
+                CommitterDate = [int64]$Entry.CommitterDate
+                Subject = $split.Subject
+                Body = $split.Body
+            }
+        }
+
         return [pscustomobject]@{
             AuthorName = $Entry.AuthorName
             AuthorEmail = $Entry.AuthorEmail
             AuthorDate = [int64]$Entry.AuthorDate
+            CommitterName = $Entry.CommitterName
+            CommitterEmail = $Entry.CommitterEmail
+            CommitterDate = [int64]$Entry.CommitterDate
             Subject = $Entry.Subject
             Body = if ($Entry.Body) { $Entry.Body } else { '' }
         }
@@ -265,6 +339,9 @@ function Get-CommitMetadataFromStoredEntry {
         AuthorName = ConvertFrom-Base64Utf8 -Encoded $Entry.AuthorNameB64
         AuthorEmail = ConvertFrom-Base64Utf8 -Encoded $Entry.AuthorEmailB64
         AuthorDate = [int64]$Entry.AuthorDate
+        CommitterName = ConvertFrom-Base64Utf8 -Encoded $Entry.CommitterNameB64
+        CommitterEmail = ConvertFrom-Base64Utf8 -Encoded $Entry.CommitterEmailB64
+        CommitterDate = [int64]$Entry.CommitterDate
         Subject = ConvertFrom-Base64Utf8 -Encoded $Entry.SubjectB64
         Body = ConvertFrom-Base64Utf8 -Encoded $Entry.BodyB64
     }
@@ -295,19 +372,35 @@ function Parse-GitCommitObject {
     $authorName = $null
     $authorEmail = $null
     $authorDate = 0
+    $committerName = $null
+    $committerEmail = $null
+    $committerDate = 0
 
     foreach ($line in ($raw -split "`n")) {
         if ($line -match '^author (.+?) <([^>]*)> (\d+) ') {
             $authorName = $Matches[1].Trim()
             $authorEmail = $Matches[2]
             $authorDate = [int64]$Matches[3]
-            break
+        }
+        elseif ($line -match '^committer (.+?) <([^>]*)> (\d+) ') {
+            $committerName = $Matches[1].Trim()
+            $committerEmail = $Matches[2]
+            $committerDate = [int64]$Matches[3]
         }
     }
 
     if (-not $authorName) {
         $preview = ($raw -split "`n" | Select-Object -First 6) -join '; '
         throw "Could not parse author from git commit object. Header: $preview"
+    }
+
+    if (-not $committerName) {
+        $committerName = $authorName
+        $committerEmail = $authorEmail
+    }
+
+    if ($committerDate -eq 0) {
+        $committerDate = $authorDate
     }
 
     $blankIdx = $raw.IndexOf("`n`n")
@@ -321,6 +414,9 @@ function Parse-GitCommitObject {
         AuthorName = $authorName
         AuthorEmail = $authorEmail
         AuthorDate = $authorDate
+        CommitterName = $committerName
+        CommitterEmail = $committerEmail
+        CommitterDate = $committerDate
         Subject = $subject
         Body = $body
     }

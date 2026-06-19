@@ -14,6 +14,10 @@ function Test-ReplayQueueEntry {
         throw "Author date mismatch: queue=$($Item.AuthorDate) metadata=$($Item.Metadata.AuthorDate)."
     }
 
+    if ($Item.Metadata.CommitterDate -ne $Item.CommitterDate) {
+        throw "Committer date mismatch: queue=$($Item.CommitterDate) metadata=$($Item.Metadata.CommitterDate)."
+    }
+
     if ([string]::IsNullOrWhiteSpace($Item.Metadata.Subject)) {
         throw 'Commit subject is empty.'
     }

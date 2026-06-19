@@ -1,7 +1,7 @@
 #requires -Version 7.0
 <#
 .SYNOPSIS
-    Step 2/4: import source JSON files, sort, write replay-queue.json (no git).
+    Step 2/4: import source CSV files, sort, write replay-queue.json (no git).
 #>
 [CmdletBinding()]
 param(

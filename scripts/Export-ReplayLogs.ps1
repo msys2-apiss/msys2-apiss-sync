@@ -1,7 +1,7 @@
 #requires -Version 7.0
 <#
 .SYNOPSIS
-    Step 1/4: fetch upstream history into JSON (ports.json, ports-mingw.json).
+    Step 1/4: fetch upstream history into CSV (ports.csv, ports-mingw.csv).
 #>
 [CmdletBinding()]
 param(
@@ -43,7 +43,7 @@ try {
         -Refresh:$Refresh
 
     $total = Get-ReplayPendingCount -SourceLogs $logs
-    Write-SyncLog "Step 1/4 complete; $total commit(s) in source JSON file(s)."
+    Write-SyncLog "Step 1/4 complete; $total commit(s) in source CSV file(s)."
     exit 0
 }
 catch {

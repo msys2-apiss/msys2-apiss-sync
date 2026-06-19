@@ -23,13 +23,14 @@ Do not rewrite the base commit from sync tooling.
 
 ## Replay rules
 
-- Sort pending commits by author date, committer date, source id, upstream SHA.
-- Preserve upstream author and author date; use fixed sync-bot committer.
-- Set committer date equal to author date (never wall-clock `now()`).
+- Merge pending commits by replay rank while preserving git order within each source.
+- Preserve upstream author name/email and author date (`GIT_AUTHOR_*`).
+- Preserve upstream committer name/email and committer date (`GIT_COMMITTER_*`).
+- Author and committer metadata are never collapsed to one identity or date.
 - Use normalized commit message template from `docs/PLAN.md` (Deterministic replay).
 - Do not use wholesale `git merge` of upstream repos.
 - Incremental runs must match append order of a full rebuild at same upstream tips.
-- Incremental only: skip commits with author date within `minReplayAgeMinutes` (default 5).
+- Incremental only: skip commits with committer date within `minReplayAgeMinutes` (default 5).
 - Track progress in this repo's `.sync/state.json` (cursors + manifest).
 
 ## Triggers

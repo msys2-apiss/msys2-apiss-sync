@@ -69,11 +69,12 @@ Upstream histories are **not** merged with `git merge`. Instead:
 
 1. Fetch both upstream repos as read-only remotes.
 2. Collect commits reachable from upstream `master` that are not yet replayed.
-3. Sort pending commits by **author date** (then committer date, then SHA tie-break).
+3. Merge pending commits by **replay rank** (committer date, author date, source id,
+   SHA) while keeping each source in **git history order**.
 4. Replay **one commit at a time** onto `upstream`:
    - Check out parent state.
    - Apply tree changes into the mapped subdirectory only.
-   - Create a commit with the **original author, author date, and message**
+   - Create a commit with the **original author, committer, dates, and message**
      (optionally prefix message with `[ports]` or `[ports-mingw]` for traceability).
 5. Advance the per-repo cursor in this repo's `.sync/state.json`.
 6. Push `upstream` on the destination; commit updated state to this repo.
@@ -96,22 +97,27 @@ history: same commit count, order, parents, trees, messages, and **SHAs**.
 
 ### Sort order (fixed tie-breakers)
 
-All upstream commits from both sources are collected, then sorted **once**
-before replay. Sort keys, in order:
+Each source CSV keeps commits in **git history order** (`git log --reverse`).
+Before replay, the two source lists are **merged** (not globally re-sorted):
+at each step compare the replay rank of the two list heads and take the
+smaller; this preserves relative order within `ports/` and within
+`ports-mingw/` while interleaving by timeline.
+
+Replay rank keys, in order:
 
 | Key | Order | Notes |
 |-----|-------|-------|
-| Author date | ASC | Unix epoch seconds from upstream |
 | Committer date | ASC | Unix epoch seconds from upstream |
+| Author date | ASC | Unix epoch seconds from upstream |
 | Source id | ASC | `ports` before `ports-mingw` (lexicographic) |
 | Upstream full SHA | ASC | Hex string compare |
 
-Incremental sync uses the **same sort** over the pending slice only. Because
+Incremental sync uses the **same merge** over the pending slice only. Because
 replay is strictly append-only and cursors record upstream SHAs, incremental
 runs must match what a full rebuild would have produced at the same upstream
 tips.
 
-**Replay age gate (incremental only):** commits with author date newer than
+**Replay age gate (incremental only):** commits with committer date newer than
 `replay.minReplayAgeMinutes` (default 5, matches poll interval) are held back.
 This avoids replaying very fresh upstream commits before the cross-repo timeline
 stabilizes. Bootstrap, rebuild, and verify replay all history regardless of age.
@@ -120,14 +126,14 @@ stabilizes. Bootstrap, rebuild, and verify replay all history regardless of age.
 
 | Field | Value |
 |-------|-------|
-| Author name/email | Copied from upstream commit |
-| Author date | Copied from upstream (`GIT_AUTHOR_DATE`) |
-| Committer name/email | Fixed: `msys2-uwp-sync-bot <msys2-uwp-sync-bot@users.noreply.github.com>` |
-| Committer date | **Same as author date** (never `now()`) |
+| Author name/email | Copied from upstream (`GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`) |
+| Author date | Copied from upstream (`GIT_AUTHOR_DATE`, upstream author epoch) |
+| Committer name/email | Copied from upstream (`GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL`) |
+| Committer date | Copied from upstream (`GIT_COMMITTER_DATE`, upstream committer epoch; never wall-clock `now()`) |
 
-Using a fixed committer identity plus author-date-as-committer-date keeps SHAs
-stable across machines and CI reruns. Original upstream committer is recorded
-in the `Source:` footer, not in git committer fields.
+Author and committer fields are preserved **independently** from upstream.
+Replayed commit SHAs depend on upstream author/committer metadata plus the
+normalized message template and tree mapping.
 
 ### Commit message (normalized, byte-stable)
 
@@ -300,7 +306,7 @@ to cancel in-progress runs when a newer trigger arrives.
 ### Replay age gate (timeline stability)
 
 Independent of trigger type: incremental replay only applies commits whose
-**author date** is at least `replay.minReplayAgeMinutes` old (default 5). This
+**committer date** is at least `replay.minReplayAgeMinutes` old (default 5). This
 prevents cross-repo timeline reorder when fresh commits arrive close together.
 See **Deterministic replay** above.
 

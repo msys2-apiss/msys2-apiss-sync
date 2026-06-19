@@ -62,6 +62,9 @@ $normal = Parse-GitCommitObject -Raw $normalRaw
 Assert-Equal -Name 'normal author name' -Expected 'Example User' -Actual $normal.AuthorName
 Assert-Equal -Name 'normal author email' -Expected 'user@example.com' -Actual $normal.AuthorEmail
 Assert-Equal -Name 'normal author date' -Expected 1700000000 -Actual $normal.AuthorDate
+Assert-Equal -Name 'normal committer date' -Expected 1700000001 -Actual $normal.CommitterDate
+Assert-Equal -Name 'normal committer name' -Expected 'Example User' -Actual $normal.CommitterName
+Assert-Equal -Name 'normal committer email' -Expected 'user@example.com' -Actual $normal.CommitterEmail
 Assert-Equal -Name 'normal subject' -Expected 'subject line' -Actual $normal.Subject
 Assert-True -Name 'normal body' -Condition:($normal.Body.Trim() -eq 'body line')
 
@@ -69,6 +72,9 @@ $emptyEmail = Parse-GitCommitObject -Raw $emptyEmailRaw
 Assert-Equal -Name 'empty email author name' -Expected 'Mehrdad' -Actual $emptyEmail.AuthorName
 Assert-Equal -Name 'empty email author email' -Expected '' -Actual $emptyEmail.AuthorEmail
 Assert-Equal -Name 'empty email author date' -Expected 1520670164 -Actual $emptyEmail.AuthorDate
+Assert-Equal -Name 'empty email committer date' -Expected 1520833463 -Actual $emptyEmail.CommitterDate
+Assert-Equal -Name 'empty email committer name' -Expected 'Mehrdad' -Actual $emptyEmail.CommitterName
+Assert-Equal -Name 'empty email committer email' -Expected '' -Actual $emptyEmail.CommitterEmail
 
 $subjectOnly = Parse-GitCommitObject -Raw $subjectOnlyRaw
 Assert-Equal -Name 'subject-only body' -Expected '' -Actual $subjectOnly.Body

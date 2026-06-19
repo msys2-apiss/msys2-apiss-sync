@@ -37,7 +37,7 @@ param(
 - Use `git cat-file -p` via `Invoke-GitText` (UTF-8 stdout) for author/message metadata.
 - Use `git ls-tree -z` for paths that may contain non-ASCII characters.
 - Preserve author from upstream: `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_AUTHOR_DATE`.
-- Fixed committer from `config/sync.json`; `GIT_COMMITTER_DATE` = author date.
+- Preserve committer from upstream: `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL`, `GIT_COMMITTER_DATE`.
 - Message body: LF only; use manifest template from `docs/PLAN.md`.
 - On failure mid-batch: stop without pushing; state cursor stays at last success.
 - `Rebuild` / `Verify` modes must produce identical SHAs for same upstream pins.

@@ -196,23 +196,13 @@ function Export-UpstreamCommitLog {
 
 function Get-UpstreamCommitLogMetadataFormat {
     # Field sep: 0x1f; record sep: 0x1e (after %B, which may contain newlines).
-    return '%H%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%B%x1e'
+    return '%H%x1f%an%x1f%ae%x1f%at%x1f%cn%x1f%ce%x1f%ct%x1f%B%x1e'
 }
 
 function Split-GitLogCommitMessage {
     param([AllowNull()][string] $Message)
 
-    $message = ConvertTo-UnixLineEndings -Text $Message
-    $message = $message.TrimEnd("`n")
-    if (-not $message) {
-        return @{ Subject = ''; Body = '' }
-    }
-
-    $msgParts = $message -split "`n", 2
-    return @{
-        Subject = $msgParts[0]
-        Body = if ($msgParts.Count -gt 1) { $msgParts[1].TrimEnd() } else { '' }
-    }
+    return Split-CommitMessage -Message $Message
 }
 
 function ConvertFrom-UpstreamCommitLogMetadataText {
@@ -238,19 +228,23 @@ function ConvertFrom-UpstreamCommitLogMetadataText {
             continue
         }
 
-        $parts = $record.Split($fieldSep, 6)
-        if ($parts.Count -lt 6) {
+        $parts = $record.Split($fieldSep, 8)
+        if ($parts.Count -lt 8) {
             $preview = $record.Substring(0, [Math]::Min(120, $record.Length))
-            throw "Invalid upstream commit log record (expected 6 fields, got $($parts.Count)): $preview"
+            throw "Invalid upstream commit log record (expected 8 fields, got $($parts.Count)): $preview"
         }
 
-        $split = Split-GitLogCommitMessage -Message $parts[5]
+        $message = $parts[7].TrimEnd("`n")
+        $split = Split-GitLogCommitMessage -Message $message
         [void]$entries.Add([pscustomobject]@{
             Sha = $parts[0]
             AuthorDate = [int64]$parts[3]
-            CommitterDate = [int64]$parts[4]
+            CommitterDate = [int64]$parts[6]
             AuthorName = $parts[1]
             AuthorEmail = $parts[2]
+            CommitterName = $parts[4]
+            CommitterEmail = $parts[5]
+            Message = $message
             Subject = $split.Subject
             Body = $split.Body
         })
@@ -444,6 +438,12 @@ function Apply-UpstreamCommitToIndex {
     return $true
 }
 
+function Format-GitReplayDateEnv {
+    param([Parameter(Mandatory)][int64] $UnixSeconds)
+
+    return "@$UnixSeconds"
+}
+
 function New-ReplayCommit {
     param(
         [Parameter(Mandatory)][string] $DestinationPath,
@@ -452,13 +452,30 @@ function New-ReplayCommit {
         [Parameter(Mandatory)][string] $Message
     )
 
-    $authorDate = [DateTimeOffset]::FromUnixTimeSeconds($Metadata.AuthorDate).ToString('yyyy-MM-dd HH:mm:ss K')
+    if ($null -eq $Metadata.PSObject.Properties['AuthorDate']) {
+        throw 'Commit metadata is missing AuthorDate.'
+    }
+
+    if ($null -eq $Metadata.PSObject.Properties['CommitterDate']) {
+        throw 'Commit metadata is missing CommitterDate.'
+    }
+
+    if ($null -eq $Metadata.PSObject.Properties['CommitterName']) {
+        throw 'Commit metadata is missing CommitterName.'
+    }
+
+    if ($null -eq $Metadata.PSObject.Properties['CommitterEmail']) {
+        throw 'Commit metadata is missing CommitterEmail.'
+    }
+
+    $authorUnix = [int64]$Metadata.AuthorDate
+    $committerUnix = [int64]$Metadata.CommitterDate
     $env:GIT_AUTHOR_NAME = $Metadata.AuthorName
     $env:GIT_AUTHOR_EMAIL = $Metadata.AuthorEmail
-    $env:GIT_AUTHOR_DATE = $authorDate
-    $env:GIT_COMMITTER_NAME = $Config.replay.committerName
-    $env:GIT_COMMITTER_EMAIL = $Config.replay.committerEmail
-    $env:GIT_COMMITTER_DATE = $authorDate
+    $env:GIT_AUTHOR_DATE = Format-GitReplayDateEnv -UnixSeconds $authorUnix
+    $env:GIT_COMMITTER_NAME = $Metadata.CommitterName
+    $env:GIT_COMMITTER_EMAIL = $Metadata.CommitterEmail
+    $env:GIT_COMMITTER_DATE = Format-GitReplayDateEnv -UnixSeconds $committerUnix
 
     $messagePath = Join-Path ([System.IO.Path]::GetTempPath()) "sync-commit-$([Guid]::NewGuid().ToString('N')).txt"
     try {
@@ -537,11 +554,11 @@ function Filter-ReplayQueueByAge {
     if ($null -eq $minutes) { $minutes = 5 }
 
     $cutoff = Get-ReplayAgeCutoffUnix -Config $Config
-    $eligible = @($Queue | Where-Object { $_.AuthorDate -le $cutoff })
+    $eligible = @($Queue | Where-Object { $_.CommitterDate -le $cutoff })
     $held = $Queue.Count - $eligible.Count
 
     if ($held -gt 0) {
-        Write-SyncLog "Holding $held commit(s) with author date within the last $minutes minute(s) to avoid timeline reorder."
+        Write-SyncLog "Holding $held commit(s) with committer date within the last $minutes minute(s) to avoid timeline reorder."
     }
 
     return $eligible
@@ -555,7 +572,7 @@ function Get-ReplaySortRank {
         [Parameter(Mandatory)][string] $Sha
     )
 
-    return ('{0:D12}|{1:D12}|{2}|{3}' -f $AuthorDate, $CommitterDate, $SortKey, $Sha)
+    return ('{0:D12}|{1:D12}|{2}|{3}' -f $CommitterDate, $AuthorDate, $SortKey, $Sha)
 }
 
 function New-ReplayQueueItem {
@@ -581,6 +598,40 @@ function New-ReplayQueueItem {
             -SortKey $SourceEntry.sortKey `
             -Sha $LogEntry.Sha)
     }
+}
+
+function Merge-ReplayCommitQueues {
+    param(
+        [Parameter(Mandatory)][object[]] $Left,
+        [Parameter(Mandatory)][object[]] $Right
+    )
+
+    $merged = New-Object System.Collections.Generic.List[object]
+    $i = 0
+    $j = 0
+
+    while ($i -lt $Left.Count -and $j -lt $Right.Count) {
+        if ($Left[$i].SortRank -le $Right[$j].SortRank) {
+            [void]$merged.Add($Left[$i])
+            $i++
+        }
+        else {
+            [void]$merged.Add($Right[$j])
+            $j++
+        }
+    }
+
+    while ($i -lt $Left.Count) {
+        [void]$merged.Add($Left[$i])
+        $i++
+    }
+
+    while ($j -lt $Right.Count) {
+        [void]$merged.Add($Right[$j])
+        $j++
+    }
+
+    return $merged.ToArray()
 }
 
 function Sort-ReplayCommitQueue {

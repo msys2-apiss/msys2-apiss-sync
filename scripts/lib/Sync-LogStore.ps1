@@ -5,9 +5,11 @@
 . "$PSScriptRoot/Sync-State.ps1"
 . "$PSScriptRoot/Sync-Git.ps1"
 
-$script:ReplaySourceLogVersion = 2
-$script:ReplayQueueVersion = 1
+$script:ReplaySourceLogVersion = 5
+$script:ReplaySourceLogLegacyJsonVersion = 2
+$script:ReplayQueueVersion = 4
 $script:Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+$script:ReplaySourceLogCsvHeader = 'committerDate,authorDate,sha,authorName,authorEmail,committerName,committerEmail,message'
 
 function Get-ReplayLogStoreDirectory {
     param([Parameter(Mandatory)][string] $RepoRoot)
@@ -17,6 +19,24 @@ function Get-ReplayLogStoreDirectory {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
     return $dir
+}
+
+function Get-ReplaySourceLogCsvPath {
+    param(
+        [Parameter(Mandatory)][string] $RepoRoot,
+        [Parameter(Mandatory)][string] $SourceId
+    )
+
+    return Join-Path (Get-ReplayLogStoreDirectory -RepoRoot $RepoRoot) "$SourceId.csv"
+}
+
+function Get-ReplaySourceLogMetaPath {
+    param(
+        [Parameter(Mandatory)][string] $RepoRoot,
+        [Parameter(Mandatory)][string] $SourceId
+    )
+
+    return Join-Path (Get-ReplayLogStoreDirectory -RepoRoot $RepoRoot) "$SourceId.meta.json"
 }
 
 function Get-ReplaySourceLogJsonPath {
@@ -39,8 +59,25 @@ function New-StoredCommitEntry {
         [Parameter(Mandatory)][string] $Sha,
         [Parameter(Mandatory)][int64] $AuthorDate,
         [Parameter(Mandatory)][int64] $CommitterDate,
-        [Parameter(Mandatory)] $Metadata
+        [Parameter(Mandatory)] $Metadata,
+        [int] $GitSequence = 0
     )
+
+    $message = if ($null -ne $Metadata.PSObject.Properties['Message'] -and $Metadata.Message) {
+        $Metadata.Message.ToString()
+    }
+    elseif ($Metadata.Subject) {
+        $subject = $Metadata.Subject.ToString()
+        if ($Metadata.Body) {
+            "$subject`n`n$($Metadata.Body)"
+        }
+        else {
+            $subject
+        }
+    }
+    else {
+        ''
+    }
 
     return [pscustomobject]@{
         Sha = $Sha
@@ -48,8 +85,53 @@ function New-StoredCommitEntry {
         CommitterDate = $CommitterDate
         AuthorName = $Metadata.AuthorName
         AuthorEmail = $Metadata.AuthorEmail
-        Subject = $Metadata.Subject
-        Body = if ($Metadata.Body) { $Metadata.Body } else { '' }
+        CommitterName = $Metadata.CommitterName
+        CommitterEmail = $Metadata.CommitterEmail
+        Message = $message
+        GitSequence = $GitSequence
+    }
+}
+
+function Test-ReplaySourceLogMeta {
+    param(
+        [Parameter(Mandatory)] $Meta,
+        [string] $AfterSha,
+        [Parameter(Mandatory)][string] $UntilSha
+    )
+
+    if ([int]$Meta.version -ne $script:ReplaySourceLogVersion) {
+        return $false
+    }
+
+    $expectedAfter = if ($AfterSha) { $AfterSha } else { '' }
+    $actualAfter = if ($Meta.afterSha) { $Meta.afterSha.ToString() } else { '' }
+    if ($Meta.untilSha -ne $UntilSha -or $actualAfter -ne $expectedAfter) {
+        return $false
+    }
+
+    return [int]$Meta.commitCount -gt 0
+}
+
+function Test-ReplaySourceLogCache {
+    param(
+        [Parameter(Mandatory)][string] $RepoRoot,
+        [Parameter(Mandatory)][string] $SourceId,
+        [string] $AfterSha,
+        [Parameter(Mandatory)][string] $UntilSha
+    )
+
+    $metaPath = Get-ReplaySourceLogMetaPath -RepoRoot $RepoRoot -SourceId $SourceId
+    $csvPath = Get-ReplaySourceLogCsvPath -RepoRoot $RepoRoot -SourceId $SourceId
+    if (-not ((Test-Path -LiteralPath $metaPath) -and (Test-Path -LiteralPath $csvPath))) {
+        return Test-ReplaySourceLogJson -Path (Get-ReplaySourceLogJsonPath -RepoRoot $RepoRoot -SourceId $SourceId) -AfterSha $AfterSha -UntilSha $UntilSha
+    }
+
+    try {
+        $meta = Get-Content -LiteralPath $metaPath -Raw -Encoding utf8 | ConvertFrom-Json
+        return Test-ReplaySourceLogMeta -Meta $meta -AfterSha $AfterSha -UntilSha $UntilSha
+    }
+    catch {
+        return $false
     }
 }
 
@@ -93,16 +175,25 @@ function Import-ReplaySourceLogJson {
 
     $doc = Get-Content -LiteralPath $Path -Raw -Encoding utf8 | ConvertFrom-Json
     $commits = @()
+    $seq = 0
     foreach ($entry in $doc.commits) {
+        $subject = ConvertFrom-Base64Utf8 -Encoded $entry.subjectB64.ToString()
+        $body = ConvertFrom-Base64Utf8 -Encoded $(if ($entry.bodyB64) { $entry.bodyB64.ToString() } else { '' })
+        $message = if ($body) { "$subject`n`n$body" } else { $subject }
+        $authorName = ConvertFrom-Base64Utf8 -Encoded $entry.authorNameB64.ToString()
+        $authorEmail = ConvertFrom-Base64Utf8 -Encoded $entry.authorEmailB64.ToString()
         $commits += [pscustomobject]@{
             Sha = $entry.sha.ToString()
             AuthorDate = [int64]$entry.authorDate
             CommitterDate = [int64]$entry.committerDate
-            AuthorName = ConvertFrom-Base64Utf8 -Encoded $entry.authorNameB64.ToString()
-            AuthorEmail = ConvertFrom-Base64Utf8 -Encoded $entry.authorEmailB64.ToString()
-            Subject = ConvertFrom-Base64Utf8 -Encoded $entry.subjectB64.ToString()
-            Body = ConvertFrom-Base64Utf8 -Encoded $(if ($entry.bodyB64) { $entry.bodyB64.ToString() } else { '' })
+            AuthorName = $authorName
+            AuthorEmail = $authorEmail
+            CommitterName = $authorName
+            CommitterEmail = $authorEmail
+            Message = $message
+            GitSequence = $seq
         }
+        $seq++
     }
 
     return [pscustomobject]@{
@@ -111,6 +202,138 @@ function Import-ReplaySourceLogJson {
         UntilSha = $doc.untilSha.ToString()
         FetchedAt = $doc.fetchedAt.ToString()
         Commits = $commits
+    }
+}
+
+function Write-ReplaySourceLogMeta {
+    param(
+        [Parameter(Mandatory)][string] $Path,
+        [Parameter(Mandatory)][string] $SourceId,
+        [string] $AfterSha,
+        [Parameter(Mandatory)][string] $UntilSha,
+        [Parameter(Mandatory)][string] $FetchedAt,
+        [Parameter(Mandatory)][int] $CommitCount
+    )
+
+    $writer = [System.IO.StreamWriter]::new($Path, $false, $script:Utf8NoBom)
+    try {
+        $writer.Write('{"version":')
+        $writer.Write($script:ReplaySourceLogVersion)
+        $writer.Write(',"format":"csv","sourceId":')
+        Write-JsonString -Writer $writer -Value $SourceId
+        $writer.Write(',"afterSha":')
+        if ($AfterSha) {
+            Write-JsonString -Writer $writer -Value $AfterSha
+        }
+        else {
+            $writer.Write('null')
+        }
+        $writer.Write(',"untilSha":')
+        Write-JsonString -Writer $writer -Value $UntilSha
+        $writer.Write(',"fetchedAt":')
+        Write-JsonString -Writer $writer -Value $FetchedAt
+        $writer.Write(',"commitCount":')
+        $writer.Write($CommitCount)
+        $writer.Write('}')
+    }
+    finally {
+        $writer.Close()
+    }
+}
+
+function Write-ReplaySourceLogCsv {
+    param(
+        [Parameter(Mandatory)][string] $Path,
+        [Parameter(Mandatory)][object[]] $Entries
+    )
+
+    $writer = [System.IO.StreamWriter]::new($Path, $false, $script:Utf8NoBom)
+    try {
+        $writer.WriteLine($script:ReplaySourceLogCsvHeader)
+        foreach ($entry in $Entries) {
+            $line = @(
+                $entry.CommitterDate
+                $entry.AuthorDate
+                (Format-CsvQuotedField -Value $entry.Sha)
+                (Format-CsvQuotedField -Value $entry.AuthorName)
+                (Format-CsvQuotedField -Value $entry.AuthorEmail)
+                (Format-CsvQuotedField -Value $entry.CommitterName)
+                (Format-CsvQuotedField -Value $entry.CommitterEmail)
+                (Format-CsvQuotedField -Value $entry.Message)
+            ) -join ','
+            $writer.WriteLine($line)
+        }
+    }
+    finally {
+        $writer.Close()
+    }
+}
+
+function Import-ReplaySourceLogCsv {
+    param(
+        [Parameter(Mandatory)] $Meta,
+        [Parameter(Mandatory)][string] $Path
+    )
+
+    $header = (Get-Content -LiteralPath $Path -TotalCount 1 -Encoding utf8)
+    $hasMessageColumn = $header -match '(^|,)message($|,)'
+
+    $commits = @()
+    $seq = 0
+    foreach ($row in (Import-Csv -LiteralPath $Path -Encoding UTF8)) {
+        $message = if ($hasMessageColumn) {
+            if ($row.message) { $row.message.ToString() } else { '' }
+        }
+        else {
+            $subject = if ($row.subject) { $row.subject.ToString() } else { '' }
+            if ($row.body) {
+                "$subject`n`n$($row.body.ToString())"
+            }
+            else {
+                $subject
+            }
+        }
+
+        $commits += [pscustomobject]@{
+            Sha = $row.sha.ToString()
+            AuthorDate = [int64]$row.authorDate
+            CommitterDate = [int64]$row.committerDate
+            AuthorName = $row.authorName.ToString()
+            AuthorEmail = $row.authorEmail.ToString()
+            CommitterName = $row.committerName.ToString()
+            CommitterEmail = $row.committerEmail.ToString()
+            Message = $message
+            GitSequence = $seq
+        }
+        $seq++
+    }
+
+    return [pscustomobject]@{
+        SourceId = $Meta.sourceId.ToString()
+        AfterSha = if ($Meta.afterSha) { $Meta.afterSha.ToString() } else { $null }
+        UntilSha = $Meta.untilSha.ToString()
+        FetchedAt = $Meta.fetchedAt.ToString()
+        CommitCount = $commits.Count
+        Commits = $commits
+    }
+}
+
+function New-ReplaySourceLogStub {
+    param(
+        [Parameter(Mandatory)][string] $SourceId,
+        [string] $AfterSha,
+        [Parameter(Mandatory)][string] $UntilSha,
+        [Parameter(Mandatory)][string] $FetchedAt,
+        [Parameter(Mandatory)][int] $CommitCount
+    )
+
+    return [pscustomobject]@{
+        SourceId = $SourceId
+        AfterSha = $AfterSha
+        UntilSha = $UntilSha
+        FetchedAt = $FetchedAt
+        CommitCount = $CommitCount
+        Commits = $null
     }
 }
 
@@ -127,7 +350,7 @@ function Write-ReplaySourceLogJson {
     $writer = [System.IO.StreamWriter]::new($Path, $false, $script:Utf8NoBom)
     try {
         $writer.Write('{"version":')
-        $writer.Write($script:ReplaySourceLogVersion)
+        $writer.Write($script:ReplaySourceLogLegacyJsonVersion)
         $writer.Write(',"sourceId":')
         Write-JsonString -Writer $writer -Value $SourceId
         $writer.Write(',"afterSha":')
@@ -173,6 +396,81 @@ function Write-ReplaySourceLogJson {
     }
 }
 
+function Export-ReplaySourceLogCsv {
+    param(
+        [Parameter(Mandatory)][string] $RepoRoot,
+        [Parameter(Mandatory)][string] $SourceId,
+        [Parameter(Mandatory)][string] $MirrorPath,
+        [string] $AfterSha,
+        [Parameter(Mandatory)][string] $UntilSha,
+        [switch] $Refresh
+    )
+
+    $csvPath = Get-ReplaySourceLogCsvPath -RepoRoot $RepoRoot -SourceId $SourceId
+    $metaPath = Get-ReplaySourceLogMetaPath -RepoRoot $RepoRoot -SourceId $SourceId
+    $legacyJsonPath = Get-ReplaySourceLogJsonPath -RepoRoot $RepoRoot -SourceId $SourceId
+
+    if (-not $Refresh -and (Test-ReplaySourceLogCache -RepoRoot $RepoRoot -SourceId $SourceId -AfterSha $AfterSha -UntilSha $UntilSha)) {
+        $metaPath = Get-ReplaySourceLogMetaPath -RepoRoot $RepoRoot -SourceId $SourceId
+        if (Test-Path -LiteralPath $metaPath) {
+            $meta = Get-Content -LiteralPath $metaPath -Raw -Encoding utf8 | ConvertFrom-Json
+            if ([int]$meta.version -eq $script:ReplaySourceLogVersion) {
+                Write-SyncLog "  $SourceId -> $csvPath ($($meta.commitCount) commits, cached)"
+                return New-ReplaySourceLogStub `
+                    -SourceId $SourceId `
+                    -AfterSha $AfterSha `
+                    -UntilSha $UntilSha `
+                    -FetchedAt $meta.fetchedAt.ToString() `
+                    -CommitCount [int]$meta.commitCount
+            }
+        }
+        $existing = Import-ReplaySourceLogJson -Path $legacyJsonPath
+        Write-SyncLog "  $SourceId -> $legacyJsonPath ($($existing.Commits.Count) commits, cached)"
+        return $existing
+    }
+
+    Write-SyncLog "  $SourceId -> git log..."
+    $entries = @()
+    $gitSeq = 0
+    foreach ($raw in (Export-UpstreamCommitLogWithMetadata `
+            -MirrorPath $MirrorPath `
+            -AfterSha $AfterSha `
+            -UntilSha $UntilSha)) {
+        $entries += New-StoredCommitEntry `
+            -Sha $raw.Sha `
+            -AuthorDate $raw.AuthorDate `
+            -CommitterDate $raw.CommitterDate `
+            -Metadata $raw `
+            -GitSequence $gitSeq
+        $gitSeq++
+    }
+
+    $fetchedAt = (Get-Date).ToUniversalTime().ToString('o')
+    Write-ReplaySourceLogCsv -Path $csvPath -Entries $entries
+    Write-ReplaySourceLogMeta `
+        -Path $metaPath `
+        -SourceId $SourceId `
+        -AfterSha $AfterSha `
+        -UntilSha $UntilSha `
+        -FetchedAt $fetchedAt `
+        -CommitCount $entries.Count
+
+    if (Test-Path -LiteralPath $legacyJsonPath) {
+        Remove-Item -LiteralPath $legacyJsonPath -Force
+    }
+
+    Write-SyncLog "  $SourceId -> $csvPath ($($entries.Count) commits, written)"
+
+    return [pscustomobject]@{
+        SourceId = $SourceId
+        AfterSha = $AfterSha
+        UntilSha = $UntilSha
+        FetchedAt = $fetchedAt
+        CommitCount = $entries.Count
+        Commits = $entries
+    }
+}
+
 function Export-ReplaySourceLogJson {
     param(
         [Parameter(Mandatory)][string] $RepoRoot,
@@ -183,44 +481,13 @@ function Export-ReplaySourceLogJson {
         [switch] $Refresh
     )
 
-    $path = Get-ReplaySourceLogJsonPath -RepoRoot $RepoRoot -SourceId $SourceId
-    if (-not $Refresh -and (Test-ReplaySourceLogJson -Path $path -AfterSha $AfterSha -UntilSha $UntilSha)) {
-        $existing = Import-ReplaySourceLogJson -Path $path
-        Write-SyncLog "  $SourceId -> $path ($($existing.Commits.Count) commits, cached)"
-        return $existing
-    }
-
-    Write-SyncLog "  $SourceId -> git log..."
-    $entries = @(
-        Export-UpstreamCommitLogWithMetadata `
-            -MirrorPath $MirrorPath `
-            -AfterSha $AfterSha `
-            -UntilSha $UntilSha | ForEach-Object {
-            New-StoredCommitEntry `
-                -Sha $_.Sha `
-                -AuthorDate $_.AuthorDate `
-                -CommitterDate $_.CommitterDate `
-                -Metadata $_
-        }
-    )
-
-    $fetchedAt = (Get-Date).ToUniversalTime().ToString('o')
-    Write-ReplaySourceLogJson `
-        -Path $path `
+    return Export-ReplaySourceLogCsv `
+        -RepoRoot $RepoRoot `
         -SourceId $SourceId `
+        -MirrorPath $MirrorPath `
         -AfterSha $AfterSha `
         -UntilSha $UntilSha `
-        -FetchedAt $fetchedAt `
-        -Entries $entries
-    Write-SyncLog "  $SourceId -> $path ($($entries.Count) commits, written)"
-
-    return [pscustomobject]@{
-        SourceId = $SourceId
-        AfterSha = $AfterSha
-        UntilSha = $UntilSha
-        FetchedAt = $fetchedAt
-        Commits = $entries
-    }
+        -Refresh:$Refresh
 }
 
 function Export-ReplaySourceLogs {
@@ -234,7 +501,7 @@ function Export-ReplaySourceLogs {
         [switch] $Refresh
     )
 
-    Write-SyncLog 'Step 1/4: export upstream history to JSON (one file per source)'
+    Write-SyncLog 'Step 1/4: export upstream history to CSV (one file per source)'
 
     $resetBranch = $Mode -in @('Bootstrap', 'Rebuild', 'Verify')
     $logs = @{}
@@ -250,7 +517,7 @@ function Export-ReplaySourceLogs {
             $null = Test-CommitExists -RepoPath $mirrorPath -Sha $afterSha
         }
 
-        $logs[$sourceId] = Export-ReplaySourceLogJson `
+        $logs[$sourceId] = Export-ReplaySourceLogCsv `
             -RepoRoot $RepoRoot `
             -SourceId $sourceId `
             -MirrorPath $mirrorPath `
@@ -271,11 +538,20 @@ function Import-ReplaySourceLogsFromDisk {
     $logs = @{}
     foreach ($prop in $Config.sources.PSObject.Properties) {
         $sourceId = $prop.Name
-        $path = Get-ReplaySourceLogJsonPath -RepoRoot $RepoRoot -SourceId $sourceId
-        if (-not (Test-Path -LiteralPath $path)) {
-            throw "Missing $path (run Export-ReplayLogs.ps1 first)"
+        $csvPath = Get-ReplaySourceLogCsvPath -RepoRoot $RepoRoot -SourceId $sourceId
+        $metaPath = Get-ReplaySourceLogMetaPath -RepoRoot $RepoRoot -SourceId $sourceId
+        $jsonPath = Get-ReplaySourceLogJsonPath -RepoRoot $RepoRoot -SourceId $sourceId
+
+        if ((Test-Path -LiteralPath $csvPath) -and (Test-Path -LiteralPath $metaPath)) {
+            $meta = Get-Content -LiteralPath $metaPath -Raw -Encoding utf8 | ConvertFrom-Json
+            $logs[$sourceId] = Import-ReplaySourceLogCsv -Meta $meta -Path $csvPath
         }
-        $logs[$sourceId] = Import-ReplaySourceLogJson -Path $path
+        elseif (Test-Path -LiteralPath $jsonPath) {
+            $logs[$sourceId] = Import-ReplaySourceLogJson -Path $jsonPath
+        }
+        else {
+            throw "Missing $csvPath (run Export-ReplayLogs.ps1 first)"
+        }
     }
     return $logs
 }
@@ -285,7 +561,12 @@ function Get-ReplayPendingCount {
 
     $count = 0
     foreach ($log in $SourceLogs.Values) {
-        $count += $log.Commits.Count
+        if ($log.Commits) {
+            $count += $log.Commits.Count
+        }
+        else {
+            $count += [int]$log.CommitCount
+        }
     }
     return $count
 }
@@ -324,8 +605,10 @@ function New-ReplayQueueItemFromStored {
         ReplayMessage = $message
         AuthorNameB64 = (ConvertTo-Base64Utf8 -Text $StoredEntry.AuthorName)
         AuthorEmailB64 = (ConvertTo-Base64Utf8 -Text $StoredEntry.AuthorEmail)
-        SubjectB64 = (ConvertTo-Base64Utf8 -Text $StoredEntry.Subject)
-        BodyB64 = (ConvertTo-Base64Utf8 -Text $StoredEntry.Body)
+        CommitterNameB64 = (ConvertTo-Base64Utf8 -Text $StoredEntry.CommitterName)
+        CommitterEmailB64 = (ConvertTo-Base64Utf8 -Text $StoredEntry.CommitterEmail)
+        SubjectB64 = (ConvertTo-Base64Utf8 -Text $metadata.Subject)
+        BodyB64 = (ConvertTo-Base64Utf8 -Text $metadata.Body)
         ReplayMessageB64 = (ConvertTo-Base64Utf8 -Text $message)
     }
 }
@@ -393,6 +676,10 @@ function Write-ReplayQueueJson {
             Write-JsonString -Writer $writer -Value $item.AuthorNameB64
             $writer.Write(',"authorEmailB64":')
             Write-JsonString -Writer $writer -Value $item.AuthorEmailB64
+            $writer.Write(',"committerNameB64":')
+            Write-JsonString -Writer $writer -Value $item.CommitterNameB64
+            $writer.Write(',"committerEmailB64":')
+            Write-JsonString -Writer $writer -Value $item.CommitterEmailB64
             $writer.Write(',"subjectB64":')
             Write-JsonString -Writer $writer -Value $item.SubjectB64
             $writer.Write(',"bodyB64":')
@@ -421,7 +708,7 @@ function Test-ReplayQueueJson {
 
     try {
         $head = (Get-Content -LiteralPath $Path -TotalCount 1 -Encoding utf8)
-        if ($head -notmatch '"version":1') {
+        if ($head -notmatch '"version":4') {
             return $false
         }
         $doc = Get-Content -LiteralPath $Path -Raw -Encoding utf8 | ConvertFrom-Json
@@ -460,6 +747,9 @@ function Import-ReplayQueueJson {
             AuthorName = ConvertFrom-Base64Utf8 -Encoded $entry.authorNameB64.ToString()
             AuthorEmail = ConvertFrom-Base64Utf8 -Encoded $entry.authorEmailB64.ToString()
             AuthorDate = [int64]$entry.authorDate
+            CommitterName = ConvertFrom-Base64Utf8 -Encoded $entry.committerNameB64.ToString()
+            CommitterEmail = ConvertFrom-Base64Utf8 -Encoded $entry.committerEmailB64.ToString()
+            CommitterDate = [int64]$entry.committerDate
             Subject = ConvertFrom-Base64Utf8 -Encoded $entry.subjectB64.ToString()
             Body = ConvertFrom-Base64Utf8 -Encoded $(if ($entry.bodyB64) { $entry.bodyB64.ToString() } else { '' })
         }
@@ -478,6 +768,8 @@ function Import-ReplayQueueJson {
             ReplayMessage = ConvertFrom-Base64Utf8 -Encoded $entry.replayMessageB64.ToString()
             AuthorNameB64 = $entry.authorNameB64.ToString()
             AuthorEmailB64 = $entry.authorEmailB64.ToString()
+            CommitterNameB64 = $entry.committerNameB64.ToString()
+            CommitterEmailB64 = $entry.committerEmailB64.ToString()
             SubjectB64 = $entry.subjectB64.ToString()
             BodyB64 = if ($entry.bodyB64) { $entry.bodyB64.ToString() } else { '' }
             ReplayMessageB64 = $entry.replayMessageB64.ToString()
@@ -507,24 +799,32 @@ function Export-ReplayQueueJson {
     }
 
     $total = Get-ReplayPendingCount -SourceLogs $SourceLogs
-    Write-SyncLog "Step 2/4: import source JSON, merge and sort ($total commits)"
+    Write-SyncLog "Step 2/4: import source CSV, merge by replay rank ($total commits)"
 
-    $queue = New-Object System.Collections.Generic.List[object]
+    $merged = $null
     foreach ($prop in $Config.sources.PSObject.Properties) {
         $sourceId = $prop.Name
         $sourceEntry = $prop.Value
         $mirrorPath = $Mirrors[$sourceId]
+        $sourceQueue = New-Object System.Collections.Generic.List[object]
 
         foreach ($entry in $SourceLogs[$sourceId].Commits) {
-            [void]$queue.Add((New-ReplayQueueItemFromStored `
+            [void]$sourceQueue.Add((New-ReplayQueueItemFromStored `
                 -SourceId $sourceId `
                 -SourceEntry $sourceEntry `
                 -MirrorPath $mirrorPath `
                 -StoredEntry $entry))
         }
+
+        if ($null -eq $merged) {
+            $merged = @($sourceQueue.ToArray())
+        }
+        else {
+            $merged = Merge-ReplayCommitQueues -Left $merged -Right @($sourceQueue.ToArray())
+        }
     }
 
-    $sorted = @(Sort-ReplayCommitQueue -Queue @($queue.ToArray()))
+    $sorted = if ($merged) { @($merged) } else { @() }
     $builtAt = (Get-Date).ToUniversalTime().ToString('o')
 
     $pins = @{}

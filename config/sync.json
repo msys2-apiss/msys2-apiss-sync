@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "replaySpecVersion": 3,
+  "replaySpecVersion": 4,
   "syncRepo": {
     "owner": "msys2-uwp",
     "repo": "msys2-uwp-sync",
@@ -40,9 +40,6 @@
     "dispatchEventType": "upstream-updated"
   },
   "replay": {
-    "committerName": "msys2-uwp-sync-bot",
-    "committerEmail": "msys2-uwp-sync-bot@users.noreply.github.com",
-    "committerDateFromAuthor": true,
     "lineEnding": "LF",
     "skipEmptyTreeDiff": true,
     "minReplayAgeMinutes": 5
