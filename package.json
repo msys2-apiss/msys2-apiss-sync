@@ -1,7 +1,7 @@
 {
   "name": "msys2-apiss-sync",
   "private": true,
-  "packageManager": "yarn@1.22.22",
+  "packageManager": "yarn@4.17.0",
   "type": "module",
   "engines": {
     "node": ">=22.18.0"
