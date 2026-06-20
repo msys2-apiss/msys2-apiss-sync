@@ -39,8 +39,12 @@ Install both under `sync/.github/workflows/`. Set `UPSTREAM_REPO` variable and
 ```yaml
 concurrency:
   group: sync-upstream
-  cancel-in-progress: true
+  cancel-in-progress: false
 ```
+
+Long sync runs must not be cancelled by the next hourly cron. Scheduled runs
+skip when another `sync-upstream` job is already in progress; dispatch and
+manual runs queue until the current run finishes.
 
 ## Secrets
 

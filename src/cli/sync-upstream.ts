@@ -16,6 +16,7 @@ import {
 import {
   advanceSyncCursorDestShasIfSafe,
   clearDestinationSyncBranches,
+  checkoutDestinationReplayBranch,
   ensureDestinationBaseCommit,
   getDestinationBranchSha,
   initializeDestinationAlternates,
@@ -125,8 +126,7 @@ async function main(): Promise<void> {
         if (!replayTipSha) {
           throw new Error(`Missing destination branch origin/${replayBranch}`);
         }
-        runGit(destPath, ['checkout', '-B', replayBranch, replayTipSha]);
-        runGit(destPath, ['reset', '--hard', 'HEAD']);
+        checkoutDestinationReplayBranch(destPath, replayBranch, replayTipSha);
       }
     } else {
       setDestinationReplayCheckout(destPath, config, isFullReplay);

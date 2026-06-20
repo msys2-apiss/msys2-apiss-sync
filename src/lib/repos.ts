@@ -105,6 +105,20 @@ export function ensureDestinationBaseCommit(destinationPath: string, config: Syn
   runGit(destinationPath, ['cat-file', '-e', `${base}^{commit}`]);
 }
 
+export function prepareDestinationWorkingTree(destinationPath: string): void {
+  runGit(destinationPath, ['clean', '-fd']);
+}
+
+export function checkoutDestinationReplayBranch(
+  destinationPath: string,
+  branchName: string,
+  sha: string
+): void {
+  prepareDestinationWorkingTree(destinationPath);
+  runGit(destinationPath, ['checkout', '-f', '-B', branchName, sha]);
+  runGit(destinationPath, ['reset', '--hard', 'HEAD']);
+}
+
 export function setDestinationReplayCheckout(
   destinationPath: string,
   config: SyncConfig,
@@ -112,14 +126,14 @@ export function setDestinationReplayCheckout(
 ): void {
   const replayBranch = config.Destination.Branches.Replay;
   if (isFullReplay) {
-    runGit(destinationPath, ['checkout', '-B', replayBranch, config.Destination.BaseCommit]);
+    checkoutDestinationReplayBranch(destinationPath, replayBranch, config.Destination.BaseCommit);
     return;
   }
   const replayTipSha = getDestinationBranchSha(destinationPath, replayBranch);
   if (!replayTipSha) {
     throw new Error(`Missing destination branch origin/${replayBranch}`);
   }
-  runGit(destinationPath, ['checkout', '-B', replayBranch, replayTipSha]);
+  checkoutDestinationReplayBranch(destinationPath, replayBranch, replayTipSha);
 }
 
 /** Remote destination branch tip (origin/<branch> only). */
@@ -264,7 +278,7 @@ export function clearDestinationSyncBranches(destinationPath: string, config: Sy
   const replayBranch = config.Destination.Branches.Replay;
   try {
     runGit(destinationPath, ['cat-file', '-e', `${base}^{commit}`]);
-    runGit(destinationPath, ['checkout', '-B', replayBranch, base]);
+    checkoutDestinationReplayBranch(destinationPath, replayBranch, base);
   } catch {
     logger.write(`Base commit not in clone; deleting replay branch ${replayBranch}`, 'Warn');
     try {

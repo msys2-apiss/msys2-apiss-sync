@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { describe, expect, test } from 'vitest';
 
-import { resolveUpstreamCursorSha, setDestinationBranchSha } from '../../src/lib/repos.ts';
+import { checkoutDestinationReplayBranch, resolveUpstreamCursorSha, setDestinationBranchSha } from '../../src/lib/repos.ts';
 import { formatReplayCommitMessage } from '../../src/lib/replay.ts';
 
 function runGit(repoPath: string, args: string[]): string {
@@ -70,6 +70,33 @@ describe('setDestinationBranchSha', () => {
 
       expect(runGit(repoPath, ['rev-parse', 'HEAD']).trim()).toBe(first);
       expect(runGit(repoPath, ['rev-parse', 'upstream-ports']).trim()).toBe(second);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('checkoutDestinationReplayBranch', () => {
+  test('removes untracked files that block checkout', () => {
+    const root = mkdtempSync(join(tmpdir(), 'msys2-apiss-sync-repos-checkout-'));
+    try {
+      const repoPath = join(root, 'repo');
+      initTestRepo(repoPath);
+
+      writeFileSync(join(repoPath, 'tracked.txt'), 'tracked\n', 'utf8');
+      runGit(repoPath, ['add', 'tracked.txt']);
+      runGit(repoPath, ['commit', '-m', 'tracked']);
+      const tip = runGit(repoPath, ['rev-parse', 'HEAD']).trim();
+
+      mkdirSync(join(repoPath, 'ports-mingw/nested'), { recursive: true });
+      writeFileSync(join(repoPath, 'ports-mingw/block.txt'), 'untracked\n', 'utf8');
+      writeFileSync(join(repoPath, 'ports-mingw/nested/other.txt'), 'other\n', 'utf8');
+
+      checkoutDestinationReplayBranch(repoPath, 'upstream', tip);
+
+      expect(runGit(repoPath, ['rev-parse', 'HEAD']).trim()).toBe(tip);
+      expect(runGit(repoPath, ['symbolic-ref', '--short', 'HEAD']).trim()).toBe('upstream');
+      expect(() => runGit(repoPath, ['status', '--porcelain'])).not.toThrow();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

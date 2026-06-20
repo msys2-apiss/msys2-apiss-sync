@@ -19,13 +19,45 @@ on:
 
 concurrency:
   group: sync-upstream
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.check.outputs.proceed }}
+    steps:
+      - name: Skip scheduled run when sync already in progress
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            if (context.eventName !== 'schedule') {
+              core.setOutput('proceed', 'true');
+              return;
+            }
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'sync-upstream.yml',
+              status: 'in_progress',
+              per_page: 100
+            });
+            const busy = data.workflow_runs.some((run) => run.id !== context.runId);
+            if (busy) {
+              core.info('Another sync-upstream run is in progress; skipping scheduled run.');
+              core.setOutput('proceed', 'false');
+              return;
+            }
+            core.setOutput('proceed', 'true');
+
   sync:
+    needs: preflight
+    if: needs.preflight.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Log trigger
