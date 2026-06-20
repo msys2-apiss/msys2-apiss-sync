@@ -602,8 +602,8 @@ Edit in git only when values change (rare).
   },
   "Mirrors": {
     "Owner": "msys2-uwp",
-    "Ports": "MSYS2-packages-mirror",
-    "PortsMingw": "MINGW-packages-mirror",
+    "Ports": "MSYS2-packages",
+    "PortsMingw": "MINGW-packages",
     "SyncIntervalMinutes": 5,
     "DispatchEventType": "upstream-updated"
   },
@@ -623,7 +623,11 @@ Edit in git only when values change (rare).
 | `ReplaySpecVersion` | Algorithm version; bump to 5 if commit-step optimization changes replay SHAs |
 | `Destination.*` | Target repo, base commit, branch names |
 | `Sources.*` | Upstream repos, paths, sort keys |
-| `Mirrors.*` | Mirror repos, sync interval, dispatch event |
+| `Mirrors.*` | Mirror repos (`msys2-uwp/MSYS2-packages`, `msys2-uwp/MINGW-packages`), sync interval, dispatch event |
+
+Mirror repos use branch **`sync`** (default) for workflow YAML only; **`master`** is a
+pure fast-forward copy of upstream `master` with no workflow commits. Templates:
+`docs/examples/mirror-sync.yml`, `docs/examples/mirror-dispatch.yml`.
 | `Replay.*` | Age gate, tree/message rules |
 | `PollIntervalMinutes` | Hourly tolerance poll (60 -> cron `0 * * * *`) |
 | `DailyReconciliationCron` | Daily gap-check schedule |
@@ -721,6 +725,17 @@ CI reads timing and repo constants from [`config/sync.json`](../config/sync.json
 | `DailyReconciliationCron` | `'0 3 * * *'` | Daily reconciliation cron (same string in YAML) |
 
 GitHub Actions requires static cron in YAML; workflow comments reference sync.json as source of truth. Preflight step logs both values via `loadSyncConfig`.
+
+### Mirror repos (`msys2-uwp/MSYS2-packages`, `msys2-uwp/MINGW-packages`)
+
+| Branch | Role |
+|--------|------|
+| `sync` (default) | `.github/workflows/mirror-sync.yml`, `mirror-dispatch.yml` |
+| `master` | Pure upstream mirror; no workflow files |
+
+`mirror-sync.yml` fetches upstream `master` and pushes `upstream/master` to
+`origin/master` without mutating the `sync` checkout. `mirror-dispatch.yml` fires on
+`push` to `master` and dispatches `upstream-updated` to `msys2-uwp/msys2-uwp-sync`.
 
 ### [`sync-upstream.yml`](../.github/workflows/sync-upstream.yml) changes
 

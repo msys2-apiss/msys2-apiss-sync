@@ -1,7 +1,8 @@
 name: Dispatch sync on mirror push
 
-# Install this workflow in each mirror repo under msys2-uwp/.
-# Copy to: .github/workflows/mirror-dispatch.yml
+# Install on mirror repo branch sync (set sync as default branch).
+# Copy to: sync/.github/workflows/mirror-dispatch.yml
+# Runs when mirror-sync updates master; workflows stay on sync, not master.
 # Requires secret SYNC_DISPATCH_TOKEN (repo scope, can dispatch msys2-uwp-sync).
 
 on:

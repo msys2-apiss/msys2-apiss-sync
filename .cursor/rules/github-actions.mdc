@@ -19,10 +19,15 @@ alwaysApply: false
 
 | Mirror | Upstream |
 |--------|----------|
-| `msys2-uwp/MSYS2-packages-mirror` | `msys2/MSYS2-packages` |
-| `msys2-uwp/MINGW-packages-mirror` | `msys2/MINGW-packages` |
+| `msys2-uwp/MSYS2-packages` | `msys2/MSYS2-packages` |
+| `msys2-uwp/MINGW-packages` | `msys2/MINGW-packages` |
+
+Branch layout: **`sync`** (default) holds workflow YAML only; **`master`** is a
+pure fast-forward copy of upstream `master` (no workflow commits on master).
 
 Templates: `docs/examples/mirror-sync.yml`, `docs/examples/mirror-dispatch.yml`.
+Install both under `sync/.github/workflows/`. Set `UPSTREAM_REPO` variable and
+`SYNC_DISPATCH_TOKEN` secret on each mirror repo.
 
 ## Runner
 

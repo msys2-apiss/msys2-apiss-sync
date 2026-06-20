@@ -1,7 +1,8 @@
 name: Mirror sync from upstream
 
-# Install this workflow in each mirror repo under msys2-uwp/.
-# Copy to: .github/workflows/mirror-sync.yml
+# Install on mirror repo branch sync (set sync as default branch).
+# Copy to: sync/.github/workflows/mirror-sync.yml
+# master holds upstream package history only; do not commit workflows to master.
 # Set repository variable UPSTREAM_REPO (e.g. msys2/MSYS2-packages).
 
 on:
@@ -16,7 +17,7 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout mirror
+      - name: Checkout sync branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -28,23 +29,18 @@ jobs:
           git remote add upstream "https://github.com/${UPSTREAM_REPO}.git" 2>/dev/null || \
             git remote set-url upstream "https://github.com/${UPSTREAM_REPO}.git"
           git fetch upstream master
-          BEFORE="$(git rev-parse HEAD)"
-          if git merge --ff-only upstream/master; then
-            echo "Fast-forwarded mirror to upstream/master"
-          else
-            echo "Mirror diverged from upstream; resetting to upstream/master"
-            git reset --hard upstream/master
-          fi
-          AFTER="$(git rev-parse HEAD)"
-          if [ "$BEFORE" = "$AFTER" ]; then
+          git fetch origin master
+          BEFORE="$(git rev-parse origin/master 2>/dev/null || true)"
+          AFTER="$(git rev-parse upstream/master)"
+          if [ -n "$BEFORE" ] && [ "$BEFORE" = "$AFTER" ]; then
             echo "No upstream changes."
-          else
-            echo "Advanced mirror to ${AFTER}"
+            exit 0
           fi
+          echo "Advanced mirror from ${BEFORE:-<none>} to ${AFTER}"
 
       - name: Push mirror
         run: |
-          if git push origin HEAD:master; then
+          if git push origin upstream/master:master; then
             exit 0
           fi
-          git push --force-with-lease origin HEAD:master
+          git push --force-with-lease origin upstream/master:master
