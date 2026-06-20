@@ -4,7 +4,11 @@ import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { describe, expect, test } from 'vitest';
 
-import { testReplayCheckpointSafe } from '../../src/lib/queue.ts';
+import {
+  buildCommitParentMapForShas,
+  precomputeReplayCheckpointSafeFlags,
+  testReplayCheckpointSafe
+} from '../../src/lib/queue.ts';
 import type { ReplayEntry } from '../../src/types/replay-entry.ts';
 
 function runGit(repoPath: string, args: string[]): string {
@@ -74,6 +78,7 @@ describe('testReplayCheckpointSafe', () => {
       runGit(mirrorPath, ['commit', '-m', 'right']);
       const right = runGit(mirrorPath, ['rev-parse', 'HEAD']).trim();
 
+      const parentMap = buildCommitParentMapForShas(mirrorPath, [base, left, right]);
       const queue = [newTestEntry(base), newTestEntry(left), newTestEntry(right)];
 
       expect(testReplayCheckpointSafe({
@@ -81,8 +86,8 @@ describe('testReplayCheckpointSafe', () => {
         Index: 0,
         LastPortsSha: null,
         LastPortsMingwSha: base,
-        MirrorPorts: mirrorPath,
-        MirrorMingw: mirrorPath
+        ParentMapPorts: parentMap,
+        ParentMapMingw: parentMap
       })).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -111,6 +116,7 @@ describe('testReplayCheckpointSafe', () => {
       runGit(mirrorPath, ['commit', '-m', 'right']);
       const right = runGit(mirrorPath, ['rev-parse', 'HEAD']).trim();
 
+      const parentMap = buildCommitParentMapForShas(mirrorPath, [base, left, right]);
       const queue = [newTestEntry(base), newTestEntry(left), newTestEntry(right)];
 
       expect(testReplayCheckpointSafe({
@@ -118,9 +124,47 @@ describe('testReplayCheckpointSafe', () => {
         Index: 1,
         LastPortsSha: null,
         LastPortsMingwSha: left,
-        MirrorPorts: mirrorPath,
-        MirrorMingw: mirrorPath
+        ParentMapPorts: parentMap,
+        ParentMapMingw: parentMap
       })).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('precomputeReplayCheckpointSafeFlags', () => {
+  test('matches per-index fork-safe checks', () => {
+    const root = mkdtempSync(join(tmpdir(), 'msys2-uwp-sync-checkpoint-'));
+    try {
+      const mirrorPath = join(root, 'mirror');
+      initTestRepo(mirrorPath);
+
+      writeRepoFile(mirrorPath, 'base.txt', 'base\n');
+      runGit(mirrorPath, ['add', 'base.txt']);
+      runGit(mirrorPath, ['commit', '-m', 'base']);
+      const base = runGit(mirrorPath, ['rev-parse', 'HEAD']).trim();
+
+      writeRepoFile(mirrorPath, 'left.txt', 'left\n');
+      runGit(mirrorPath, ['add', 'left.txt']);
+      runGit(mirrorPath, ['commit', '-m', 'left']);
+      const left = runGit(mirrorPath, ['rev-parse', 'HEAD']).trim();
+
+      runGit(mirrorPath, ['checkout', base]);
+      writeRepoFile(mirrorPath, 'right.txt', 'right\n');
+      runGit(mirrorPath, ['add', 'right.txt']);
+      runGit(mirrorPath, ['commit', '-m', 'right']);
+      const right = runGit(mirrorPath, ['rev-parse', 'HEAD']).trim();
+
+      const parentMap = buildCommitParentMapForShas(mirrorPath, [base, left, right]);
+      const queue = [newTestEntry(base), newTestEntry(left), newTestEntry(right)];
+      const flags = precomputeReplayCheckpointSafeFlags({
+        Queue: queue,
+        ParentMapPorts: parentMap,
+        ParentMapMingw: parentMap
+      });
+
+      expect(flags).toEqual([true, false, true]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

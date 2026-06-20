@@ -3,7 +3,7 @@ import { clearReplayCheckpoint, getReplayCheckpoint, saveReplayCheckpoint } from
 import { getSyncRepoRoot, loadSyncConfig } from '../lib/config.ts';
 import { getMirrorTipSha, getSourceReplayHistory } from '../lib/history.ts';
 import { createSyncLogger, getWorkDirectory, setSyncUtf8Environment } from '../lib/log.ts';
-import { filterReplayQueueByAge, mergeReplayCommitQueues, testReplayCheckpointSafe } from '../lib/queue.ts';
+import { buildMirrorCommitParentMap, filterReplayQueueByAge, mergeReplayCommitQueues, testReplayCheckpointSafe } from '../lib/queue.ts';
 import {
   clearDestinationSyncBranches,
   ensureDestinationBaseCommit,
@@ -174,6 +174,13 @@ async function main(): Promise<void> {
       logger.write(`Throttled to MaxCommits=${maxCommits}`);
     }
 
+    const [parentMapPorts, parentMapMingw] = await Promise.all([
+      buildMirrorCommitParentMap(mirrorPorts, config.Sources.Ports.Branch),
+      buildMirrorCommitParentMap(mirrorMingw, config.Sources.PortsMingw.Branch)
+    ]);
+    logger.write('Loaded mirror parent maps for fork-safe checkpoints');
+    const checkpointAncestorMemo = new Map<string, boolean>();
+
     let lastPortsSha = cursorPorts;
     let lastMingwSha = cursorMingw;
     let replayed = 0;
@@ -233,13 +240,15 @@ async function main(): Promise<void> {
         });
       }
 
-      if (testReplayCheckpointSafe({
+      const shouldAttemptCheckpoint = (index + 1) % 100 === 0 || index + 1 === queue.length;
+      if (shouldAttemptCheckpoint && testReplayCheckpointSafe({
         Queue: queue,
         Index: index,
         LastPortsSha: lastPortsSha,
         LastPortsMingwSha: lastMingwSha,
-        MirrorPorts: mirrorPorts,
-        MirrorMingw: mirrorMingw
+        ParentMapPorts: parentMapPorts,
+        ParentMapMingw: parentMapMingw,
+        AncestorMemo: checkpointAncestorMemo
       })) {
         const replayTipSha = dryRun ? checkpoint?.ReplayTipSha ?? null : runGitText(destPath, ['rev-parse', 'HEAD']).trim();
         saveReplayCheckpoint({

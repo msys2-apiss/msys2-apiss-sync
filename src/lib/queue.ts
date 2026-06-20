@@ -1,6 +1,8 @@
 import type { ReplayEntry } from '../types/replay-entry.ts';
 import type { SyncConfig } from './config.ts';
-import { testGitAncestor } from './git.ts';
+import { runGitText, streamGitText } from './git.ts';
+
+export type CommitParentMap = Map<string, readonly string[]>;
 
 export function compareReplayRank(left: ReplayEntry, right: ReplayEntry): number {
   if (left.CommitterDateUnix !== right.CommitterDateUnix) {
@@ -62,26 +64,144 @@ export function getReplayAgeCutoffUnix(config: SyncConfig, nowUnix = Math.floor(
   return nowUnix - minutes * 60;
 }
 
+export async function buildMirrorCommitParentMap(mirrorPath: string, branch = 'master'): Promise<CommitParentMap> {
+  const raw = await streamGitText(mirrorPath, ['rev-list', '--parents', branch]);
+  const map = new Map<string, readonly string[]>();
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const parts = trimmed.split(/\s+/);
+    map.set(parts[0]!, parts.slice(1));
+  }
+  return map;
+}
+
+export function buildCommitParentMapForShas(mirrorPath: string, shas: Iterable<string>): CommitParentMap {
+  const map = new Map<string, readonly string[]>();
+  for (const sha of new Set(shas)) {
+    const line = runGitText(mirrorPath, ['rev-list', '--parents', '-n', '1', sha]).trim();
+    if (!line) {
+      continue;
+    }
+    const parts = line.split(/\s+/);
+    map.set(parts[0]!, parts.slice(1));
+  }
+  return map;
+}
+
+export function testCommitIsAncestor(
+  parentMap: CommitParentMap,
+  ancestor: string,
+  descendant: string,
+  memo = new Map<string, boolean>()
+): boolean {
+  if (ancestor === descendant) {
+    return true;
+  }
+
+  const key = `${ancestor}\0${descendant}`;
+  const cached = memo.get(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const seen = new Set<string>();
+  const stack = [descendant];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (current === ancestor) {
+      memo.set(key, true);
+      return true;
+    }
+    if (seen.has(current)) {
+      continue;
+    }
+    seen.add(current);
+    for (const parent of parentMap.get(current) ?? []) {
+      stack.push(parent);
+    }
+  }
+
+  memo.set(key, false);
+  return false;
+}
+
 export function testReplayCheckpointSafe(input: {
   Queue: ReplayEntry[];
   Index: number;
   LastPortsSha: string | null;
   LastPortsMingwSha: string | null;
-  MirrorPorts: string;
-  MirrorMingw: string;
+  ParentMapPorts: CommitParentMap;
+  ParentMapMingw: CommitParentMap;
+  AncestorMemo?: Map<string, boolean>;
 }): boolean {
+  const memo = input.AncestorMemo ?? new Map<string, boolean>();
   const remaining = input.Queue.slice(input.Index + 1);
   for (const entry of remaining) {
-    const mirrorPath = entry.SourceId === 'ports' ? input.MirrorPorts : input.MirrorMingw;
+    const parentMap = entry.SourceId === 'ports' ? input.ParentMapPorts : input.ParentMapMingw;
     const cursorSha = entry.SourceId === 'ports' ? input.LastPortsSha : input.LastPortsMingwSha;
     if (!cursorSha) {
       continue;
     }
-    if (!testGitAncestor(mirrorPath, cursorSha, entry.Sha)) {
+    if (!testCommitIsAncestor(parentMap, cursorSha, entry.Sha, memo)) {
       return false;
     }
   }
   return true;
+}
+
+export function precomputeSourceCheckpointSafeFlags(
+  queueEntries: readonly ReplayEntry[],
+  parentMap: CommitParentMap
+): boolean[] {
+  const flags = new Array<boolean>(queueEntries.length);
+  const memo = new Map<string, boolean>();
+
+  for (let index = 0; index < queueEntries.length; index++) {
+    const cursorSha = queueEntries[index]!.Sha;
+    let safe = true;
+    for (let remaining = index + 1; remaining < queueEntries.length; remaining++) {
+      if (!testCommitIsAncestor(parentMap, cursorSha, queueEntries[remaining]!.Sha, memo)) {
+        safe = false;
+        break;
+      }
+    }
+    flags[index] = safe;
+  }
+
+  return flags;
+}
+
+export function precomputeReplayCheckpointSafeFlags(input: {
+  Queue: ReplayEntry[];
+  ParentMapPorts: CommitParentMap;
+  ParentMapMingw: CommitParentMap;
+}): boolean[] {
+  const portsEntries = input.Queue.filter((entry) => entry.SourceId === 'ports');
+  const mingwEntries = input.Queue.filter((entry) => entry.SourceId === 'ports-mingw');
+  const portsSafe = precomputeSourceCheckpointSafeFlags(portsEntries, input.ParentMapPorts);
+  const mingwSafe = precomputeSourceCheckpointSafeFlags(mingwEntries, input.ParentMapMingw);
+  const flags = new Array<boolean>(input.Queue.length);
+  let portsIndex = 0;
+  let mingwIndex = 0;
+  let portsCursorSafe = true;
+  let mingwCursorSafe = true;
+
+  for (let index = 0; index < input.Queue.length; index++) {
+    const entry = input.Queue[index]!;
+    if (entry.SourceId === 'ports') {
+      portsCursorSafe = portsSafe[portsIndex] ?? true;
+      portsIndex++;
+    } else {
+      mingwCursorSafe = mingwSafe[mingwIndex] ?? true;
+      mingwIndex++;
+    }
+    flags[index] = portsCursorSafe && mingwCursorSafe;
+  }
+
+  return flags;
 }
 
 export function filterReplayQueueByAge(

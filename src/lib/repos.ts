@@ -133,6 +133,21 @@ export function testAllSyncBranchesExist(destinationPath: string, config: SyncCo
 }
 
 export function setDestinationBranchSha(destinationPath: string, branchName: string, sha: string): void {
+  let currentBranch: string | null = null;
+  try {
+    currentBranch = runGitText(destinationPath, ['symbolic-ref', '--short', 'HEAD']).trim();
+  } catch {
+    // Detached HEAD.
+  }
+
+  if (currentBranch === branchName) {
+    const head = runGitText(destinationPath, ['rev-parse', 'HEAD']).trim();
+    if (head !== sha) {
+      runGit(destinationPath, ['reset', '--hard', sha]);
+    }
+    return;
+  }
+
   runGit(destinationPath, ['branch', '-f', branchName, sha]);
 }
 
@@ -159,7 +174,7 @@ export function clearDestinationSyncBranches(destinationPath: string, config: Sy
   const replayBranch = config.Destination.Branches.Replay;
   try {
     runGit(destinationPath, ['cat-file', '-e', `${base}^{commit}`]);
-    runGit(destinationPath, ['branch', '-f', replayBranch, base]);
+    runGit(destinationPath, ['checkout', '-B', replayBranch, base]);
   } catch {
     logger.write(`Base commit not in clone; deleting replay branch ${replayBranch}`, 'Warn');
     try {
