@@ -1,3 +1,7 @@
+import { join } from 'node:path';
+
+import { performance } from 'node:perf_hooks';
+
 import { runGitText, runGit } from '../lib/git.ts';
 import { getSyncRepoRoot, loadSyncConfig } from '../lib/config.ts';
 import { getMirrorTipSha, getSourceReplayHistory } from '../lib/history.ts';
@@ -24,6 +28,10 @@ import {
   updateDestinationCursorBranchRefs,
   updateDestinationSyncBranchRefs
 } from '../lib/repos.ts';
+import {
+  getMirrorParentGraphCachePath,
+  loadOrBuildMirrorCommitParentMap
+} from '../lib/replay-graph.ts';
 import {
   applyUpstreamCommitToIndex,
   formatReplayCommitMessage,
@@ -105,6 +113,7 @@ async function main(): Promise<void> {
       const replayTipSha = getDestinationBranchSha(destPath, replayBranch);
       if (replayTipSha) {
         runGit(destPath, ['checkout', '-B', replayBranch, replayTipSha]);
+        runGit(destPath, ['reset', '--hard', 'HEAD']);
         isFullReplay = false;
       } else {
         setDestinationReplayCheckout(destPath, config, isFullReplay);
@@ -139,16 +148,48 @@ async function main(): Promise<void> {
       logger.write(`Throttled to MaxCommits=${maxCommits}`);
     }
 
+    const graphCacheDir = join(work, 'cache', 'replay-graph');
     const [parentMapPorts, parentMapMingw] = await Promise.all([
-      buildMirrorCommitParentMap(mirrorPorts, config.Sources.Ports.Branch),
-      buildMirrorCommitParentMap(mirrorMingw, config.Sources.PortsMingw.Branch)
+      loadOrBuildMirrorCommitParentMap({
+        CachePath: getMirrorParentGraphCachePath(graphCacheDir, 'Ports', config.Sources.Ports.Branch, tipPorts),
+        Branch: config.Sources.Ports.Branch,
+        TipSha: tipPorts,
+        Build: () => buildMirrorCommitParentMap(mirrorPorts, config.Sources.Ports.Branch)
+      }),
+      loadOrBuildMirrorCommitParentMap({
+        CachePath: getMirrorParentGraphCachePath(
+          graphCacheDir,
+          'PortsMingw',
+          config.Sources.PortsMingw.Branch,
+          tipMingw
+        ),
+        Branch: config.Sources.PortsMingw.Branch,
+        TipSha: tipMingw,
+        Build: () => buildMirrorCommitParentMap(mirrorMingw, config.Sources.PortsMingw.Branch)
+      })
     ]);
+    const precomputeStart = performance.now();
+    let lastPrecomputeReport = -1;
     const cursorBranchSafeFlags = precomputeReplayCursorBranchSafeFlags({
       Queue: queue,
       ParentMapPorts: parentMapPorts,
       ParentMapMingw: parentMapMingw,
       PortsEntries: portsList,
-      PortsMingwEntries: mingwList
+      PortsMingwEntries: mingwList,
+      OnSourceProgress: (sourceId, processed, total) => {
+        if (processed === 0) {
+          logger.write(`Precompute fork-safe flags ${sourceId}: start (${total} entries)`);
+          return;
+        }
+        const pct = Math.round((processed / total) * 100);
+        if (processed === total || processed - lastPrecomputeReport >= 5000) {
+          logger.write(
+            `Precompute fork-safe flags ${sourceId}: ${processed}/${total} (${pct}%) +${Math.round(performance.now() - precomputeStart)}ms`
+          );
+          lastPrecomputeReport = processed;
+        }
+      },
+      ProgressInterval: 5000
     });
     logger.write('Precomputed fork-safe cursor branch flags');
 
@@ -193,6 +234,7 @@ async function main(): Promise<void> {
           logger.write(`[${entry.SourceId}] skip empty diff ${entry.Sha.slice(0, 8)} ${entry.Subject}`);
         } else {
           newReplayCommit(destPath, entry, message);
+          runGit(destPath, ['reset', '--hard', 'HEAD']);
           replayed++;
           entryReplayed = true;
         }

@@ -1,6 +1,12 @@
 import type { ReplayEntry } from '../types/replay-entry.ts';
 import type { SyncConfig } from './config.ts';
+import {
+  buildFirstParentSpine,
+  precomputeForkSafeFlagsForQueue
+} from './fork-safe.ts';
 import { runGitText, streamGitText } from './git.ts';
+
+export { buildFirstParentSpine } from './fork-safe.ts';
 
 export type CommitParentMap = Map<string, readonly string[]>;
 
@@ -117,20 +123,16 @@ export function testCommitIsAncestor(
     return cached;
   }
 
-  const seen = new Set<string>();
-  const stack = [descendant];
-  while (stack.length > 0) {
-    const current = stack.pop()!;
+  let current: string | undefined = descendant;
+  while (current) {
+    const parents = parentMap.get(current);
+    if (!parents || parents.length === 0) {
+      break;
+    }
+    current = parents[0];
     if (current === ancestor) {
       memo.set(key, true);
       return true;
-    }
-    if (seen.has(current)) {
-      continue;
-    }
-    seen.add(current);
-    for (const parent of parentMap.get(current) ?? []) {
-      stack.push(parent);
     }
   }
 
@@ -141,95 +143,31 @@ export function testCommitIsAncestor(
 export function testSyncCursorBranchUpdateSafe(input: {
   Queue: ReplayEntry[];
   Index: number;
-  LastPortsSha: string | null;
-  LastPortsMingwSha: string | null;
   ParentMapPorts: CommitParentMap;
   ParentMapMingw: CommitParentMap;
-  AncestorMemo?: Map<string, boolean>;
+  TipShaPorts: string;
+  TipShaMingw: string;
 }): boolean {
-  const memo = input.AncestorMemo ?? new Map<string, boolean>();
-  const remaining = input.Queue.slice(input.Index + 1);
-  for (const entry of remaining) {
-    const parentMap = entry.SourceId === 'ports' ? input.ParentMapPorts : input.ParentMapMingw;
-    const cursorSha = entry.SourceId === 'ports' ? input.LastPortsSha : input.LastPortsMingwSha;
-    if (!cursorSha) {
-      continue;
-    }
-    if (!testCommitIsAncestor(parentMap, cursorSha, entry.Sha, memo)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-export function buildFirstParentSpine(parentMap: CommitParentMap, tipSha: string): ReadonlySet<string> {
-  const spine = new Set<string>();
-  let current: string | undefined = tipSha;
-  while (current) {
-    spine.add(current);
-    const parents = parentMap.get(current);
-    if (!parents || parents.length === 0) {
-      break;
-    }
-    current = parents[0];
-  }
-  return spine;
-}
-
-function mergeSuffixAntichain(
-  antichain: readonly string[],
-  sha: string,
-  parentMap: CommitParentMap,
-  memo: Map<string, boolean>
-): string[] {
-  for (const existing of antichain) {
-    if (testCommitIsAncestor(parentMap, existing, sha, memo)) {
-      return [...antichain];
-    }
-  }
-
-  const next: string[] = [];
-  for (const existing of antichain) {
-    if (!testCommitIsAncestor(parentMap, sha, existing, memo)) {
-      next.push(existing);
-    }
-  }
-  next.push(sha);
-  return next;
+  const entry = input.Queue[input.Index]!;
+  const parentMap = entry.SourceId === 'ports' ? input.ParentMapPorts : input.ParentMapMingw;
+  const tipSha = entry.SourceId === 'ports' ? input.TipShaPorts : input.TipShaMingw;
+  return buildFirstParentSpine(parentMap, tipSha).has(entry.Sha);
 }
 
 export function precomputeSourceCursorBranchSafeFlags(
   queueEntries: readonly ReplayEntry[],
   parentMap: CommitParentMap,
-  tipSha?: string
+  tipSha?: string,
+  onProgress?: (processed: number, total: number) => void,
+  progressInterval = 2000
 ): boolean[] {
-  const count = queueEntries.length;
-  if (count === 0) {
-    return [];
-  }
-
-  const spine = buildFirstParentSpine(parentMap, tipSha ?? queueEntries[count - 1]!.Sha);
-  const flags = new Array<boolean>(count);
-  const memo = new Map<string, boolean>();
-  const lastSha = queueEntries[count - 1]!.Sha;
-  flags[count - 1] = true;
-
-  let sideAntichain: string[] = spine.has(lastSha) ? [] : [lastSha];
-  for (let index = count - 2; index >= 0; index--) {
-    const sha = queueEntries[index]!.Sha;
-    if (!spine.has(sha)) {
-      flags[index] = false;
-    } else {
-      flags[index] = sideAntichain.every((tipSha) => testCommitIsAncestor(parentMap, sha, tipSha, memo));
-    }
-
-    const suffixSha = queueEntries[index + 1]!.Sha;
-    if (!spine.has(suffixSha)) {
-      sideAntichain = mergeSuffixAntichain(sideAntichain, suffixSha, parentMap, memo);
-    }
-  }
-
-  return flags;
+  return precomputeForkSafeFlagsForQueue(
+    queueEntries,
+    parentMap,
+    tipSha,
+    onProgress,
+    progressInterval
+  );
 }
 
 export function precomputeReplayCursorBranchSafeFlags(input: {
@@ -238,11 +176,26 @@ export function precomputeReplayCursorBranchSafeFlags(input: {
   ParentMapMingw: CommitParentMap;
   PortsEntries?: readonly ReplayEntry[];
   PortsMingwEntries?: readonly ReplayEntry[];
+  OnSourceProgress?: (sourceId: 'ports' | 'ports-mingw', processed: number, total: number) => void;
+  ProgressInterval?: number;
 }): boolean[] {
   const portsEntries = input.PortsEntries ?? input.Queue.filter((entry) => entry.SourceId === 'ports');
   const mingwEntries = input.PortsMingwEntries ?? input.Queue.filter((entry) => entry.SourceId === 'ports-mingw');
-  const portsSafe = precomputeSourceCursorBranchSafeFlags(portsEntries, input.ParentMapPorts);
-  const mingwSafe = precomputeSourceCursorBranchSafeFlags(mingwEntries, input.ParentMapMingw);
+  const progressInterval = input.ProgressInterval ?? 2000;
+  const portsSafe = precomputeSourceCursorBranchSafeFlags(
+    portsEntries,
+    input.ParentMapPorts,
+    undefined,
+    input.OnSourceProgress ? (processed, total) => input.OnSourceProgress!('ports', processed, total) : undefined,
+    progressInterval
+  );
+  const mingwSafe = precomputeSourceCursorBranchSafeFlags(
+    mingwEntries,
+    input.ParentMapMingw,
+    undefined,
+    input.OnSourceProgress ? (processed, total) => input.OnSourceProgress!('ports-mingw', processed, total) : undefined,
+    progressInterval
+  );
   const flags = new Array<boolean>(input.Queue.length);
   let portsIndex = 0;
   let mingwIndex = 0;

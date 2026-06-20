@@ -128,10 +128,10 @@ describe('testSyncCursorBranchUpdateSafe', () => {
       expect(testSyncCursorBranchUpdateSafe({
         Queue: queue,
         Index: 0,
-        LastPortsSha: Base,
-        LastPortsMingwSha: null,
         ParentMapPorts: parentMap,
-        ParentMapMingw: parentMap
+        ParentMapMingw: parentMap,
+        TipShaPorts: Right,
+        TipShaMingw: Right
       })).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -149,10 +149,10 @@ describe('testSyncCursorBranchUpdateSafe', () => {
       expect(testSyncCursorBranchUpdateSafe({
         Queue: queue,
         Index: 1,
-        LastPortsSha: Left,
-        LastPortsMingwSha: null,
         ParentMapPorts: parentMap,
-        ParentMapMingw: parentMap
+        ParentMapMingw: parentMap,
+        TipShaPorts: Right,
+        TipShaMingw: Right
       })).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -170,10 +170,10 @@ describe('testSyncCursorBranchUpdateSafe', () => {
       expect(testSyncCursorBranchUpdateSafe({
         Queue: queue,
         Index: 2,
-        LastPortsSha: Right,
-        LastPortsMingwSha: null,
         ParentMapPorts: parentMap,
-        ParentMapMingw: parentMap
+        ParentMapMingw: parentMap,
+        TipShaPorts: Right,
+        TipShaMingw: Right
       })).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -216,19 +216,14 @@ describe('precomputeReplayCursorBranchSafeFlags', () => {
         ParentMapMingw: parentMap
       });
 
-      let lastPortsSha: string | null = null;
       for (let index = 0; index < queue.length; index++) {
-        const entry = queue[index]!;
-        if (entry.SourceId === 'ports') {
-          lastPortsSha = entry.Sha;
-        }
         expect(flags[index]).toBe(testSyncCursorBranchUpdateSafe({
           Queue: queue,
           Index: index,
-          LastPortsSha: lastPortsSha,
-          LastPortsMingwSha: null,
           ParentMapPorts: parentMap,
-          ParentMapMingw: parentMap
+          ParentMapMingw: parentMap,
+          TipShaPorts: Right,
+          TipShaMingw: Right
         }));
       }
     } finally {
@@ -296,10 +291,10 @@ describe('fork-safe cursor branches after abort', () => {
       const unsafeAtLeft = !testSyncCursorBranchUpdateSafe({
         Queue: queue,
         Index: 1,
-        LastPortsSha: Left,
-        LastPortsMingwSha: null,
         ParentMapPorts: parentMap,
-        ParentMapMingw: parentMap
+        ParentMapMingw: parentMap,
+        TipShaPorts: Right,
+        TipShaMingw: Right
       });
       expect(unsafeAtLeft).toBe(true);
 

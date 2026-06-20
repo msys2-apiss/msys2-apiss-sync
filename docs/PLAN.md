@@ -41,10 +41,11 @@ footer on the two cursor-branch commits (`resolveSyncRetrieveCursorsFromBranches
 rebuilds the merged queue from those mirror cursors to each mirror tip.
 
 **During replay:** `upstream` advances on every successfully replayed entry. The cursor
-branches advance only when `testSyncCursorBranchUpdateSafe` passes (fork-safe: every
-remaining queue entry from that source must descend from the new upstream cursor in the
-mirror). Empty skips and parallel fork siblings can leave cursor branches behind `upstream`
-until safe to move (`advanceSyncCursorDestShasIfSafe`).
+branches advance only when `testSyncCursorBranchUpdateSafe` passes (fork-safe: the
+replayed upstream SHA is on the first-parent mainline from mirror tip; side-branch SHAs
+are never cursor positions). Parallel fork siblings still replay on resume via
+`cursor..tip`. Empty skips can leave cursor branches behind `upstream` until a
+mainline entry is replayed (`advanceSyncCursorDestShasIfSafe`).
 
 **On failure:** sync stops without push; branch tips in the local destination clone are
 the resume point. **On `--clean`:** cursor branches are deleted and `upstream` is reset;
@@ -448,7 +449,7 @@ Optional cache under `.work/cache/replay-log/` when mirror tip unchanged.
 | `filterReplayQueueByAge` | Incremental only; drop fresh commits |
 | `getReplayAgeCutoffUnix` | Cutoff epoch for age gate |
 | `buildMirrorCommitParentMap` | In-memory parent map for fork-safe cursor checks |
-| `testSyncCursorBranchUpdateSafe` | True when cursor branches may advance after queue index (no fork sibling left) |
+| `testSyncCursorBranchUpdateSafe` | True when the queue entry is on the first-parent mainline spine (safe cursor position) |
 
 Unit tests must cover: rank comparison tie-breakers, merge stability within source, cross-source interleave, age filter.
 
@@ -496,8 +497,9 @@ Re-run `yarn sync` **without** `--clean`. Progress is read from destination bran
 (no JSON checkpoint under `.work/`). Retrieve cursors come from `upstream-ports` and
 `upstream-ports-mingw` (parse `Source: ...@<sha>` from each branch tip commit). Checkout
 `upstream` from its branch tip. Cursor branches advance only at fork-safe queue positions
-(all remaining entries from each source descend from that source cursor in the mirror), so
-an abort mid-fork does not leave a cursor on one sibling line while the other remains. Already-replayed entries may appear again as `skip empty diff` when cursor branches lag behind skipped queue entries.
+(the replayed upstream SHA is on the first-parent mainline from mirror tip; never on a
+side branch). Resume from a mainline cursor still includes parallel fork siblings via
+`cursor..tip`. Already-replayed entries may appear again as `skip empty diff` when cursor branches lag behind skipped queue entries.
 
 Dry-run does not modify the destination index or create commits; it only diffs upstream trees to detect empty skips.
 
