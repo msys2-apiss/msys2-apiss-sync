@@ -28,8 +28,8 @@
   },
   "Mirrors": {
     "Owner": "msys2-uwp",
-    "Ports": "MSYS2-packages-mirror",
-    "PortsMingw": "MINGW-packages-mirror",
+    "Ports": "MSYS2-packages",
+    "PortsMingw": "MINGW-packages",
     "SyncIntervalMinutes": 5,
     "DispatchEventType": "upstream-updated"
   },
