@@ -18,8 +18,9 @@ documentation-only instructions.
 - Provide runnable entry points: `yarn fetch-mirrors`,
   `yarn retrieve-history`, `yarn merge-queue`, `yarn sync`, `yarn test`,
   and `yarn typecheck`
-- Document how to run in [`docs/run-local.md`](../docs/run-local.md) (copy-paste,
-  run, read `[sync]` / `[PASS]` / counts / tables)
+- Document operational runs in [`docs/usage.md`](../docs/usage.md) and local testing in
+  [`docs/run-local.md`](../docs/run-local.md) (copy-paste, run, read `[sync]` / `[PASS]`
+  / counts / tables)
 - Run the same command yourself before telling the user something works
 - Print progress and summary so success is obvious
 
@@ -33,8 +34,9 @@ documentation-only instructions.
 
 ## Docs
 
-- [`docs/run-local.md`](../docs/run-local.md): how a human runs sync locally
-- [`docs/PLAN.md`](../docs/PLAN.md): design; link to run-local for try-it commands
+- [`docs/usage.md`](../docs/usage.md): GitHub and local operational commands
+- [`docs/run-local.md`](../docs/run-local.md): local testing and debugging
+- [`docs/PLAN.md`](../docs/PLAN.md): design; link to usage.md for run commands
 
 ## Agent behavior
 

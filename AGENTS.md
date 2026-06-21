@@ -20,7 +20,7 @@ MSYS2 package history into `msys2-apiss/msys2-apiss`.
 
 ## Do not
 
-- Ship untestable instructions (dot-source-only recipes); use runnable scripts -- see `.cursor/rules/human-testable.mdc` and [`docs/run-local.md`](docs/run-local.md)
+- Ship untestable instructions (dot-source-only recipes); use runnable scripts -- see `.cursor/rules/human-testable.mdc`, [`docs/usage.md`](docs/usage.md), and [`docs/run-local.md`](docs/run-local.md)
 - Use Cursor internal plans (`~/.cursor/plans/`) or untracked shadow plan files; edit [`docs/PLAN.md`](docs/PLAN.md) only (see `.cursor/rules/planning-docs.mdc`)
 - Use `git merge` of entire upstream repos into destination (use replay instead)
 - Add platform-specific APIs in shared sync code
@@ -36,5 +36,5 @@ MSYS2 package history into `msys2-apiss/msys2-apiss`.
 | Replay cursors | destination branches `upstream`, `upstream-ports`, `upstream-ports-mingw` |
 | CI | `.github/workflows/` |
 | Design changes | update `docs/PLAN.md` first |
-| Run locally | `yarn fetch-mirrors`, `yarn retrieve-history`, `yarn merge-queue`, `yarn sync` -- see [`docs/run-local.md`](docs/run-local.md) |
-| Unit tests | `yarn test`, `yarn typecheck` |
+| Run sync | GitHub and local ops -- [`docs/usage.md`](docs/usage.md) |
+| Local testing | `yarn test`, dry-run, pipeline steps -- [`docs/run-local.md`](docs/run-local.md) |

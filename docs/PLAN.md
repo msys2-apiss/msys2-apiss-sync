@@ -35,7 +35,7 @@ progress is stored **only** in the destination git clone:
 | `upstream-ports` | Destination commit at the fork-safe MSYS2-packages cursor |
 | `upstream-ports-mingw` | Destination commit at the fork-safe MINGW-packages cursor |
 
-**Resume flow:** re-run `yarn sync` without `--clean`. Sync reads the three branch tips,
+**Resume flow:** re-run sync without `--clean` ([`usage.md`](usage.md)). Sync reads the three branch tips,
 checks out `upstream`, parses upstream mirror cursors from the `Source: msys2/<repo>@<sha>`
 footer on the two cursor-branch commits (`resolveSyncRetrieveCursorsFromBranches`), and
 rebuilds the merged queue from those mirror cursors to each mirror tip.
@@ -127,16 +127,8 @@ upstream tips.
 ## Sync entry point
 
 [`src/cli/sync-upstream.ts`](../src/cli/sync-upstream.ts) -- sole entry, no wrappers.
-
-```bash
-node src/cli/sync-upstream.ts \
-  --destination-path .work/destination/msys2-apiss \
-  [--clean] \
-  [--dry-run] \
-  [--max-commits <n>]
-```
-
-Or via `package.json` script: `yarn sync` (runs `node src/cli/sync-upstream.ts`).
+Invoked as `yarn sync` (runs `node src/cli/sync-upstream.ts`). Copy-paste commands:
+[`usage.md`](usage.md) (operational), [`run-local.md`](run-local.md) (testing).
 
 | Flag | Purpose |
 |------|---------|
@@ -493,15 +485,17 @@ Full rebuild: `--clean` then sync. Incremental at same tips adds zero commits.
 
 ### Resume after interrupt
 
-Re-run `yarn sync` **without** `--clean`. Progress is read from destination branches only
-(no JSON checkpoint under `.work/`). Retrieve cursors come from `upstream-ports` and
-`upstream-ports-mingw` (parse `Source: ...@<sha>` from each branch tip commit). Checkout
-`upstream` from its branch tip. Cursor branches advance only at fork-safe queue positions
-(the replayed upstream SHA is on the first-parent mainline from mirror tip; never on a
-side branch). Resume from a mainline cursor still includes parallel fork siblings via
-`cursor..tip`. Already-replayed entries may appear again as `skip empty diff` when cursor branches lag behind skipped queue entries.
+Progress is read from destination branches only (no JSON checkpoint under `.work/`).
+Retrieve cursors come from `upstream-ports` and `upstream-ports-mingw` (parse
+`Source: ...@<sha>` from each branch tip commit). Checkout `upstream` from its branch
+tip. Cursor branches advance only at fork-safe queue positions (the replayed upstream
+SHA is on the first-parent mainline from mirror tip; never on a side branch). Resume
+from a mainline cursor still includes parallel fork siblings via `cursor..tip`.
+Already-replayed entries may appear again as `skip empty diff` when cursor branches lag
+behind skipped queue entries. Commands: [`usage.md`](usage.md).
 
-Dry-run does not modify the destination index or create commits; it only diffs upstream trees to detect empty skips.
+Dry-run does not modify the destination index or create commits; it only diffs upstream
+trees to detect empty skips. Testing: [`run-local.md`](run-local.md).
 
 ### Text encoding (UTF-8, no loss)
 
@@ -685,8 +679,8 @@ Implements **Stage 1** and **Stage 2** from implementation design.
 
 - **Retrieve:** upstream cursors from `upstream-ports` / `upstream-ports-mingw` (parse `Source: ...@<sha>`), then `getSourceReplayHistory` to mirror tip
 - **Sort:** `compareReplayRank`, `mergeReplayCommitQueues` (4-key merge, not global sort)
-- Local try-it commands: [`run-local.md`](run-local.md)
-- Tests: `yarn test`
+- Run commands: [`usage.md`](usage.md); local testing: [`run-local.md`](run-local.md)
+- Tests: `yarn test` (see [`run-local.md`](run-local.md))
 
 ### Phase 1c -- Replay one-by-one (`replay.ts`)
 
@@ -707,7 +701,7 @@ Verify against legacy PowerShell on `--dry-run --max-commits 100` (same skip/rep
 ### Phase 4 -- Remove PowerShell + update CI/docs
 
 - Remove `scripts/*.ps1`, `scripts/lib/*.ps1`, `tests/*.Tests.ps1`, `config/config.psd1`
-- Update [`run-local.md`](run-local.md) with `yarn` commands
+- Update [`usage.md`](usage.md) and [`run-local.md`](run-local.md)
 - Consolidate CI to single [`sync-upstream.yml`](../.github/workflows/sync-upstream.yml) calling TS CLI
 - Update [`AGENTS.md`](../AGENTS.md) and cursor rules (replace `powershell-scripts.mdc` with TypeScript rules)
 
@@ -733,10 +727,8 @@ GitHub Actions requires static cron in YAML; workflow comments reference sync.js
 | `sync` (default) | `.github/workflows/mirror-sync.yml` |
 | `master` | Pure upstream mirror; no workflow files |
 
-`mirror-sync.yml` fetches upstream `master` and pushes `upstream/master` to
-`origin/master` without mutating the `sync` checkout, then dispatches
-`msys2-apiss/msys2-apiss-sync` when master advances. Manual replay: `workflow_dispatch`
-on `msys2-apiss-sync`.
+`mirror-sync.yml` on branch `sync` fast-forwards `master` from upstream and dispatches
+`msys2-apiss-sync` when master advances. Manual steps: [`usage.md`](usage.md).
 
 ### [`sync-upstream.yml`](../.github/workflows/sync-upstream.yml) changes
 
@@ -792,7 +784,7 @@ on `msys2-apiss-sync`.
 | NUL-delimited `diff-tree -z` parsing bugs | Port parser logic literally; keep `-z` tests with non-ASCII paths |
 | UTF-8 author names / commit messages | Keep `LANG=C.UTF-8`, UTF-8 stdin/stdout, LF-only messages |
 | 69k-commit bootstrap runtime still hours | Set CI timeout appropriately; log commits/sec |
-| Windows local dev | Node + git works on win32; test `yarn sync` locally |
+| Windows local dev | Node + git on win32; see [`usage.md`](usage.md), [`run-local.md`](run-local.md) |
 
 ---
 

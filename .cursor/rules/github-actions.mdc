@@ -6,6 +6,10 @@ alwaysApply: false
 
 # GitHub Actions
 
+## Manual workflow (`gh`)
+
+Full copy-paste steps: [`docs/usage.md`](../docs/usage.md).
+
 ## Workflows
 
 | File | Purpose |
