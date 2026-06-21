@@ -3,6 +3,8 @@ name: Dispatch sync on mirror push
 # Install on mirror repo branch sync (set sync as default branch).
 # Copy to: sync/.github/workflows/mirror-dispatch.yml
 # Runs when mirror-sync updates master; workflows stay on sync, not master.
+# MSYS2-packages: event-type msys2-packages-updated
+# MINGW-packages: event-type mingw-packages-updated
 # Requires secret SYNC_DISPATCH_TOKEN (repo scope, can dispatch msys2-apiss-sync).
 
 on:
