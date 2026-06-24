@@ -30,8 +30,20 @@
     "Owner": "msys2-apiss",
     "Ports": "MSYS2-packages",
     "PortsMingw": "MINGW-packages",
+    "MingwW64": "mingw-w64",
+    "Glibc": "glibc",
     "SyncIntervalMinutes": 15,
     "DispatchEventType": "upstream-updated"
+  },
+  "MirrorOnly": {
+    "MingwW64": {
+      "UpstreamUrl": "https://git.code.sf.net/p/mingw-w64/mingw-w64",
+      "Branch": "master"
+    },
+    "Glibc": {
+      "UpstreamUrl": "https://sourceware.org/git/glibc.git",
+      "Branch": "master"
+    }
   },
   "Replay": {
     "MinReplayAgeMinutes": 5,

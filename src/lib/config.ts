@@ -12,6 +12,18 @@ export interface SourceConfigEntry {
   SortKey: string;
 }
 
+export interface MirrorOnlyEntry {
+  UpstreamUrl: string;
+  Branch: string;
+}
+
+export type MirrorOnlyKey = string;
+
+export function getMirrorRepoNameByKey(config: SyncConfig, key: string): string | undefined {
+  const value = (config.Mirrors as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
 export interface SyncConfig {
   ReplaySpecVersion: number;
   Destination: {
@@ -30,9 +42,12 @@ export interface SyncConfig {
     Owner: string;
     Ports: string;
     PortsMingw: string;
+    MingwW64?: string;
+    Glibc?: string;
     SyncIntervalMinutes: number;
     DispatchEventType: string;
   };
+  MirrorOnly?: Partial<Record<MirrorOnlyKey, MirrorOnlyEntry>>;
   Replay: {
     MinReplayAgeMinutes?: number;
     SkipEmptyTreeDiff: boolean;
@@ -77,7 +92,41 @@ export function getDestinationCloneUrl(config: SyncConfig): string {
 }
 
 export function getMirrorCloneUrl(config: SyncConfig, mirrorKey: SourceKey): string {
-  return `https://github.com/${config.Mirrors.Owner}/${config.Mirrors[mirrorKey]}.git`;
+  return getMirrorCloneUrlByRepoName(config, config.Mirrors[mirrorKey]);
+}
+
+export function getMirrorCloneUrlByRepoName(config: SyncConfig, repoName: string): string {
+  return `https://github.com/${config.Mirrors.Owner}/${repoName}.git`;
+}
+
+export function getMirrorPollRepoNames(config: SyncConfig): string[] {
+  const repos = [config.Mirrors.Ports, config.Mirrors.PortsMingw];
+  if (config.MirrorOnly) {
+    for (const key of Object.keys(config.MirrorOnly)) {
+      const repo = getMirrorRepoNameByKey(config, key);
+      if (repo) {
+        repos.push(repo);
+      }
+    }
+  }
+  return repos;
+}
+
+export function getMirrorOnlyEntryForRepo(
+  config: SyncConfig,
+  repoName: string
+): MirrorOnlyEntry | null {
+  if (!config.MirrorOnly) {
+    return null;
+  }
+  for (const key of Object.keys(config.MirrorOnly)) {
+    const entry = config.MirrorOnly[key];
+    const repo = getMirrorRepoNameByKey(config, key);
+    if (entry && repo === repoName) {
+      return entry;
+    }
+  }
+  return null;
 }
 
 export function getSourceConfigEntry(config: SyncConfig, sourceKey: SourceKey): SourceConfigEntry {

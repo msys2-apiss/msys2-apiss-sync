@@ -36,7 +36,7 @@ Do not rewrite the base commit from sync tooling.
 ## Triggers
 
 - Primary: mirror repos dispatch on push (~1-5 min after upstream).
-- Fallback: hourly poll + daily reconciliation in `sync-upstream.yml`.
+- Fallback: push to `main` on this repo, hourly poll + daily reconciliation in `sync-upstream.yml`; mirror-poll on push/cron.
 
 ## References
 

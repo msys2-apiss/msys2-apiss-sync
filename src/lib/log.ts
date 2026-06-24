@@ -33,6 +33,10 @@ export function getWorkDirectory(repoRoot: string): string {
   return work;
 }
 
+export function getMirrorRoot(workDirectory: string): string {
+  return join(workDirectory, 'mirrors');
+}
+
 export function setSyncUtf8Environment(): void {
   process.env.LANG = 'C.UTF-8';
   process.env.LC_ALL = 'C.UTF-8';

@@ -41,7 +41,7 @@ yarn apply-mirror-patch --skip-fetch --source ports --range "c266c35b..28bfcc09"
 Git `-C` works the same in PowerShell:
 
 ```powershell
-git -C .work/mirrors/MSYS2-packages rev-parse master
+git -C .work/mirrors/MSYS2-packages rev-parse origin/master
 ```
 
 ## Path mapping
@@ -69,10 +69,13 @@ Clone or update both mirror repos before applying patches:
 yarn fetch-mirrors
 ```
 
-This creates or refreshes bare clones under `.work/mirrors/`:
+This creates or refreshes working-copy clones under `.work/mirrors/`:
 
 - `.work/mirrors/MSYS2-packages` from `https://github.com/msys2-apiss/MSYS2-packages.git`
 - `.work/mirrors/MINGW-packages` from `https://github.com/msys2-apiss/MINGW-packages.git`
+
+Mirror-only repos use the same layout when listed in `config/sync.json` (see
+[`add-mirror.md`](add-mirror.md)).
 
 On first run each mirror is cloned with `git clone --mirror`. Later runs run
 `git fetch --prune origin`. Output includes each mirror path and `master` tip
@@ -98,8 +101,8 @@ run `yarn fetch-mirrors` first and pass `--skip-fetch` to patch commands.
 Check a mirror tip:
 
 ```bash
-git -C .work/mirrors/MSYS2-packages rev-parse master
-git -C .work/mirrors/MINGW-packages rev-parse master
+git -C .work/mirrors/MSYS2-packages rev-parse origin/master
+git -C .work/mirrors/MINGW-packages rev-parse origin/master
 ```
 
 ## Command

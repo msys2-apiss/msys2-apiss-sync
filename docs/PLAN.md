@@ -598,8 +598,15 @@ Edit in git only when values change (rare).
     "Owner": "msys2-apiss",
     "Ports": "MSYS2-packages",
     "PortsMingw": "MINGW-packages",
+    "MingwW64": "mingw-w64",
     "SyncIntervalMinutes": 15,
     "DispatchEventType": "upstream-updated"
+  },
+  "MirrorOnly": {
+    "MingwW64": {
+      "UpstreamUrl": "https://git.code.sf.net/p/mingw-w64/mingw-w64",
+      "Branch": "master"
+    }
   },
   "Replay": {
     "MinReplayAgeMinutes": 5,
@@ -617,11 +624,12 @@ Edit in git only when values change (rare).
 | `ReplaySpecVersion` | Algorithm version; bump to 5 if commit-step optimization changes replay SHAs |
 | `Destination.*` | Target repo, base commit, branch names |
 | `Sources.*` | Upstream repos, paths, sort keys |
-| `Mirrors.*` | Mirror repos (`msys2-apiss/MSYS2-packages`, `msys2-apiss/MINGW-packages`), sync interval, dispatch event |
+| `Mirrors.*` | Mirror repos (`msys2-apiss/MSYS2-packages`, `msys2-apiss/MINGW-packages`, `msys2-apiss/mingw-w64`), sync interval, dispatch event |
+| `MirrorOnly.*` | Mirror-only repos (not replayed into destination); upstream URL and branch |
 
 Mirror repos use branch **`sync`** (default) for workflow YAML only; **`master`** is a
 pure fast-forward copy of upstream `master` with no workflow commits. Templates:
-`docs/examples/mirror-sync.yml`.
+`config/mirror-template/mirror-sync.yml`.
 | `Replay.*` | Age gate, tree/message rules |
 | `PollIntervalMinutes` | Hourly tolerance poll (60 -> cron `0 * * * *`) |
 | `DailyReconciliationCron` | Daily gap-check schedule |
@@ -719,17 +727,32 @@ CI reads timing and repo constants from [`config/sync.json`](../config/sync.json
 | `PollIntervalMinutes` | `60` | Tolerance poll cron: `0 * * * *` |
 | `DailyReconciliationCron` | `'0 3 * * *'` | Daily reconciliation cron (same string in YAML) |
 
-GitHub Actions requires static cron in YAML; workflow comments reference sync.json as source of truth. Preflight step logs both values via `loadSyncConfig`. Do not put cron on mirror repos; GitHub `*/5` schedules are often skipped. [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml) on this repo triggers `workflow_dispatch` on each mirror instead.
+GitHub Actions requires static cron in YAML; workflow comments reference sync.json as source of truth. Preflight step logs both values via `loadSyncConfig`. Do not put cron on mirror repos; GitHub `*/5` schedules are often skipped. [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml) runs [`src/lib/mirror-poll.ts`](../src/lib/mirror-poll.ts) to dispatch `mirror-sync` only when a mirror content branch HEAD differs from upstream.
 
-### Mirror repos (`msys2-apiss/MSYS2-packages`, `msys2-apiss/MINGW-packages`)
+### Mirror repos
+
+| Mirror | Upstream | Replay into msys2-apiss |
+|--------|----------|-------------------------|
+| `msys2-apiss/MSYS2-packages` | `msys2/MSYS2-packages` | yes (`ports/`) |
+| `msys2-apiss/MINGW-packages` | `msys2/MINGW-packages` | yes (`ports-mingw/`) |
+| `msys2-apiss/mingw-w64` | [SourceForge mingw-w64](https://git.code.sf.net/p/mingw-w64/mingw-w64) | no (mirror-only) |
+| `msys2-apiss/glibc` | [sourceware glibc](https://sourceware.org/git/glibc.git) | no (mirror-only) |
 
 | Branch | Role |
 |--------|------|
-| `sync` (default) | `.github/workflows/mirror-sync.yml` |
+| `sync` (default) | `.github/workflows/mirror-sync.yml`, `.github/mirror-sync.json` |
 | `master` | Pure upstream mirror; no workflow files |
 
-`mirror-sync.yml` on branch `sync` fast-forwards `master` from upstream and dispatches
-`msys2-apiss-sync` when master advances. Triggered by [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml), manual `workflow_dispatch`, or [`usage.md`](usage.md).
+All mirrors share one workflow template `config/mirror-template/mirror-sync.yml` and a
+per-repo JSON config at `.github/mirror-sync.json` on branch `sync` (canonical
+templates in `config/mirror-sync/<repo-name>.json`, applied by `yarn fetch-mirrors`).
+Config fields: `UpstreamUrl`,
+`Branches` (upstream/mirror pairs), `SyncTags` (default true), `Notify`
+(`Enabled`, `Repository`, `EventType`). Package mirrors enable `Notify` to
+dispatch `msys2-apiss-sync`; mirror-only repos disable it.
+
+Triggered by [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml), manual
+`workflow_dispatch`, or [`usage.md`](usage.md).
 
 ### [`sync-upstream.yml`](../.github/workflows/sync-upstream.yml) changes
 
@@ -737,10 +760,10 @@ GitHub Actions requires static cron in YAML; workflow comments reference sync.js
 |------|--------|
 | Runtime | `actions/setup-node` (Node 26+), `yarn install --frozen-lockfile` |
 | Sync script | `yarn sync` or `node src/cli/sync-upstream.ts` |
-| Triggers | `repository_dispatch`, schedule, `workflow_dispatch` with optional `clean` input |
+| Triggers | `push` to `main`, `repository_dispatch`, schedule, `workflow_dispatch` with optional `clean` input |
 | Schedule | `# PollIntervalMinutes=60, DailyReconciliationCron in config/sync.json` |
 | Push | Three destination branches (`upstream`, `upstream-ports`, `upstream-ports-mingw`) |
-| Workflows | Single `sync-upstream.yml` (fold bootstrap/rebuild/verify into dispatch inputs if needed) |
+| Workflows | `mirror-poll.yml` + `sync-upstream.yml`; manifest verify is local dry-run only |
 
 ### Phase 2 done when
 

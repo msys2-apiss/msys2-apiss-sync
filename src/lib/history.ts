@@ -59,7 +59,21 @@ export async function exportUpstreamCommitLogRawText(
 }
 
 export function getMirrorTipSha(mirrorPath: string, branch = 'master'): string {
-  return runGitText(mirrorPath, ['rev-parse', branch]).trim();
+  try {
+    return runGitText(mirrorPath, ['rev-parse', `origin/${branch}`]).trim();
+  } catch {
+    return runGitText(mirrorPath, ['rev-parse', branch]).trim();
+  }
+}
+
+export function resolveMirrorContentBranchRef(mirrorPath: string, branch: string): string {
+  const originRef = `origin/${branch}`;
+  try {
+    runGitText(mirrorPath, ['rev-parse', '--verify', originRef]);
+    return originRef;
+  } catch {
+    return branch;
+  }
 }
 
 export function newReplayCommitEntry(sourceId: SourceKey, logEntry: UpstreamLogEntry, config: SyncConfig): ReplayEntry {

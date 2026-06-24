@@ -90,6 +90,38 @@ describe('getFirstParentFromMap', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test('uses origin branch when local content branch is not checked out', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'msys2-apiss-sync-parent-map-origin-'));
+    try {
+      const mirrorPath = join(root, 'mirror');
+      initTestRepo(mirrorPath);
+
+      writeFileSync(join(mirrorPath, 'first.txt'), 'first\n', 'utf8');
+      runGit(mirrorPath, ['add', 'first.txt']);
+      runGit(mirrorPath, ['commit', '-m', 'first']);
+      const first = runGit(mirrorPath, ['rev-parse', 'HEAD']).trim();
+
+      writeFileSync(join(mirrorPath, 'second.txt'), 'second\n', 'utf8');
+      runGit(mirrorPath, ['add', 'second.txt']);
+      runGit(mirrorPath, ['commit', '-m', 'second']);
+      const second = runGit(mirrorPath, ['rev-parse', 'HEAD']).trim();
+      runGit(mirrorPath, ['update-ref', 'refs/remotes/origin/master', second]);
+
+      runGit(mirrorPath, ['checkout', '--orphan', 'sync']);
+      mkdirSync(join(mirrorPath, '.github', 'workflows'), { recursive: true });
+      writeFileSync(join(mirrorPath, '.github', 'workflows', 'mirror-sync.yml'), 'name: test\n', 'utf8');
+      runGit(mirrorPath, ['add', '.github']);
+      runGit(mirrorPath, ['commit', '-m', 'sync workflow']);
+
+      const parentMap = await buildMirrorCommitParentMap(mirrorPath, 'master');
+
+      expect(getFirstParentFromMap(parentMap, second)).toBe(first);
+      expect(parentMap.has(first)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('mergeReplayCommitQueues', () => {

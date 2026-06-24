@@ -31,6 +31,23 @@ yarn merge-queue --skip-fetch --save-full-json
 
 Writes `history-*-full.json` and `merged-queue-full.json`.
 
+## Verify replay manifest
+
+Check that `msys2-apiss/msys2-apiss` branch tips match what replay would append
+from current mirror cursors. Same check the removed CI `sync-verify` workflow
+used; run locally before or after a sync change.
+
+Requires a destination clone (read-only is enough):
+
+```bash
+git clone https://github.com/msys2-apiss/msys2-apiss.git .work/destination/msys2-apiss
+yarn fetch-mirrors --skip-fetch
+yarn sync --dry-run --skip-fetch --destination-path .work/destination/msys2-apiss
+```
+
+Exit 0: no mismatch. Non-zero: inspect `[sync]` output and [`PLAN.md`](PLAN.md)
+recovery steps.
+
 ## Dry-run and throttle
 
 Replay locally without push:

@@ -1,17 +1,332 @@
-import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, writeFileSync, copyFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { SourceKey } from '../types/replay-entry.ts';
 import {
   getDestinationCloneUrl,
   getMirrorCloneUrl,
+  getMirrorCloneUrlByRepoName,
   getSourceConfigEntry,
   getSourceRepoSlug,
+  getSyncRepoRoot,
   type SyncConfig
 } from './config.ts';
-import { parseReplayCommitSourceSha } from './replay.ts';
+import { parseReplayCommitSourceSha, getFirstParent } from './replay.ts';
 import { runGit, runGitText } from './git.ts';
 import type { SyncLogger } from './log.ts';
+
+export const MIRROR_SYNC_BRANCH = 'sync';
+
+function refExists(mirrorPath: string, ref: string): boolean {
+  try {
+    runGitText(mirrorPath, ['rev-parse', '--verify', ref]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function firstCommitOfBranch(mirrorPath: string, branch: string): string {
+  const raw = runGitText(mirrorPath, ['rev-list', '--max-parents=0', branch]).trim();
+  const first = raw.split('\n')[0]?.trim();
+  if (!first) {
+    throw new Error(`Could not resolve first commit of ${branch} in ${mirrorPath}`);
+  }
+  return first;
+}
+
+function isSyncBranchLayoutValid(mirrorPath: string, contentBranch: string): boolean {
+  const originContent = `origin/${contentBranch}`;
+  if (!refExists(mirrorPath, originContent) || !refExists(mirrorPath, MIRROR_SYNC_BRANCH)) {
+    return false;
+  }
+  const root = firstCommitOfBranch(mirrorPath, originContent);
+  const syncOnlyCount = runGitText(mirrorPath, [
+    'rev-list',
+    '--count',
+    MIRROR_SYNC_BRANCH,
+    `^${originContent}`
+  ]).trim();
+  if (syncOnlyCount !== '1') {
+    return false;
+  }
+  const syncParent = getFirstParent(mirrorPath, MIRROR_SYNC_BRANCH);
+  return syncParent === root;
+}
+
+export function repairSyncBranchLayout(
+  mirrorPath: string,
+  contentBranch: string,
+  logger: SyncLogger,
+  options?: { CommitMessage?: string; Force?: boolean; SkipCheckout?: boolean }
+): boolean {
+  assertWorkingCopyMirror(mirrorPath);
+  const originContent = `origin/${contentBranch}`;
+  if (!refExists(mirrorPath, originContent)) {
+    throw new Error(`Cannot repair ${MIRROR_SYNC_BRANCH}: missing ${originContent}`);
+  }
+  if (!options?.Force && isSyncBranchLayoutValid(mirrorPath, contentBranch)) {
+    return false;
+  }
+
+  if (!options?.SkipCheckout) {
+    runGit(mirrorPath, ['checkout', MIRROR_SYNC_BRANCH], {}, 5, logger);
+  }
+  runGit(mirrorPath, ['add', '-A', '.github'], {}, 5, logger);
+  let githubSubTree: string;
+  try {
+    githubSubTree = runGitText(mirrorPath, ['write-tree', '--prefix=.github']).trim();
+  } catch {
+    const commitWithGithub = runGitText(mirrorPath, [
+      'log',
+      MIRROR_SYNC_BRANCH,
+      '--format=%H',
+      '-1',
+      '--',
+      '.github'
+    ]).trim();
+    if (!commitWithGithub) {
+      throw new Error(
+        `${mirrorPath}: no .github on ${MIRROR_SYNC_BRANCH}. Copy config/mirror-sync/ before repair.`
+      );
+    }
+    githubSubTree = runGitText(mirrorPath, ['rev-parse', `${commitWithGithub}:.github`]).trim();
+  }
+
+  const root = firstCommitOfBranch(mirrorPath, originContent);
+  const message =
+    options?.CommitMessage ??
+    (runGitText(mirrorPath, ['log', '-1', '--format=%s', MIRROR_SYNC_BRANCH]).trim() ||
+      'Mirror sync workflow');
+
+  runGit(mirrorPath, ['read-tree', root], {}, 5, logger);
+  runGit(mirrorPath, ['read-tree', '--prefix=.github', githubSubTree], {}, 5, logger);
+  const treeSha = runGitText(mirrorPath, ['write-tree']).trim();
+  const newCommit = runGitText(mirrorPath, ['commit-tree', treeSha, '-p', root, '-m', message]).trim();
+  runGit(mirrorPath, ['clean', '-fd'], {}, 5, logger);
+  runGit(mirrorPath, ['checkout', '-B', MIRROR_SYNC_BRANCH, newCommit], {}, 5, logger);
+  logger.write(
+    `Repaired ${MIRROR_SYNC_BRANCH} at ${newCommit.slice(0, 8)} (parent ${root.slice(0, 8)})`
+  );
+  return true;
+}
+
+function validateSyncBranchLayout(
+  mirrorPath: string,
+  contentBranch: string,
+  logger: SyncLogger
+): void {
+  const originContent = `origin/${contentBranch}`;
+  if (!refExists(mirrorPath, originContent)) {
+    logger.write(`No ${originContent} yet; skip ${MIRROR_SYNC_BRANCH} layout check`, 'Warn');
+    return;
+  }
+  if (isSyncBranchLayoutValid(mirrorPath, contentBranch)) {
+    return;
+  }
+  const root = firstCommitOfBranch(mirrorPath, originContent);
+  const syncOnlyCount = runGitText(mirrorPath, [
+    'rev-list',
+    '--count',
+    MIRROR_SYNC_BRANCH,
+    `^${originContent}`
+  ]).trim();
+  logger.write(
+    `${MIRROR_SYNC_BRANCH} should have exactly one commit not on ${originContent}; ` +
+      `found ${syncOnlyCount}. Squash on ${MIRROR_SYNC_BRANCH} before push.`,
+    'Warn'
+  );
+  const syncParent = getFirstParent(mirrorPath, MIRROR_SYNC_BRANCH);
+  logger.write(
+    `${MIRROR_SYNC_BRANCH} parent should be first commit of ${originContent} (${root.slice(0, 8)}); ` +
+      `got ${syncParent.slice(0, 8)}. Rebuild ${MIRROR_SYNC_BRANCH} per docs/add-mirror.md.`,
+    'Warn'
+  );
+}
+
+function checkoutMirrorSyncBranch(
+  mirrorPath: string,
+  contentBranch: string,
+  logger: SyncLogger,
+  autoRepair = true
+): void {
+  const originSync = `origin/${MIRROR_SYNC_BRANCH}`;
+  if (!refExists(mirrorPath, originSync)) {
+    throw new Error(
+      `${mirrorPath}: missing ${originSync}. Bootstrap ${MIRROR_SYNC_BRANCH} per docs/add-mirror.md.`
+    );
+  }
+  runGit(mirrorPath, ['checkout', '-B', MIRROR_SYNC_BRANCH, originSync], {}, 5, logger);
+  if (autoRepair && !isSyncBranchLayoutValid(mirrorPath, contentBranch)) {
+    logger.write(`Repairing ${MIRROR_SYNC_BRANCH} layout`, 'Warn');
+    repairSyncBranchLayout(mirrorPath, contentBranch, logger);
+  } else {
+    validateSyncBranchLayout(mirrorPath, contentBranch, logger);
+  }
+}
+
+function assertWorkingCopyMirror(mirrorPath: string): void {
+  const resolved = realpathSync(mirrorPath);
+  const bareObjects = join(resolved, 'objects');
+  const gitDir = join(resolved, '.git');
+  if (existsSync(bareObjects) && !existsSync(gitDir)) {
+    throw new Error(
+      `${mirrorPath} is a bare clone. Remove the directory and re-run yarn fetch-mirrors ` +
+        'for a working copy under .work/mirrors/.'
+    );
+  }
+}
+
+function mirrorGitObjectsPath(mirrorPath: string): string {
+  assertWorkingCopyMirror(mirrorPath);
+  return join(realpathSync(mirrorPath), '.git', 'objects');
+}
+
+function cloneMirrorWorkingCopy(input: {
+  Url: string;
+  MirrorPath: string;
+  ContentBranch: string;
+  Label: string;
+  Logger: SyncLogger;
+}): void {
+  input.Logger.write(`Cloning mirror working copy ${input.Label} (${input.Url})`);
+  runGit(null, ['clone', input.Url, input.MirrorPath], {}, 5, input.Logger);
+  checkoutMirrorSyncBranch(input.MirrorPath, input.ContentBranch, input.Logger);
+}
+
+function fetchMirrorWorkingCopy(
+  mirrorPath: string,
+  contentBranch: string,
+  label: string,
+  logger: SyncLogger
+): void {
+  assertWorkingCopyMirror(mirrorPath);
+  logger.write(`Fetching mirror working copy ${label}`);
+  runGit(mirrorPath, ['fetch', 'origin', '--prune'], {}, 5, logger);
+  checkoutMirrorSyncBranch(mirrorPath, contentBranch, logger);
+}
+
+export function getMirrorSyncConfigPath(repoRoot: string, repoName: string): string {
+  return join(repoRoot, 'config', 'mirror-sync', `${repoName}.json`);
+}
+
+export function getMirrorSyncWorkflowTemplatePath(repoRoot: string): string {
+  return join(repoRoot, 'config', 'mirror-template', 'mirror-sync.yml');
+}
+
+function normalizeText(content: string): string {
+  return content.replace(/\r\n/g, '\n');
+}
+
+function jsonFilesEqual(pathA: string, pathB: string): boolean {
+  const a = JSON.parse(readFileSync(pathA, 'utf8')) as unknown;
+  const b = JSON.parse(readFileSync(pathB, 'utf8')) as unknown;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function textFilesEqual(pathA: string, pathB: string): boolean {
+  return normalizeText(readFileSync(pathA, 'utf8')) === normalizeText(readFileSync(pathB, 'utf8'));
+}
+
+function mirrorSyncFilesMatchTemplates(
+  mirrorPath: string,
+  repoRoot: string,
+  repoName: string
+): boolean {
+  const configPath = getMirrorSyncConfigPath(repoRoot, repoName);
+  const workflowPath = getMirrorSyncWorkflowTemplatePath(repoRoot);
+  const mirrorJson = join(mirrorPath, '.github', 'mirror-sync.json');
+  const mirrorYml = join(mirrorPath, '.github', 'workflows', 'mirror-sync.yml');
+  if (!existsSync(mirrorJson) || !existsSync(mirrorYml)) {
+    return false;
+  }
+  return jsonFilesEqual(mirrorJson, configPath) && textFilesEqual(mirrorYml, workflowPath);
+}
+
+export function applyMirrorSyncTemplate(input: {
+  MirrorPath: string;
+  RepoName: string;
+  ContentBranch: string;
+  Logger: SyncLogger;
+  RepoRoot?: string;
+}): boolean {
+  const repoRoot = input.RepoRoot ?? getSyncRepoRoot();
+  const configPath = getMirrorSyncConfigPath(repoRoot, input.RepoName);
+  const workflowPath = getMirrorSyncWorkflowTemplatePath(repoRoot);
+
+  if (!existsSync(configPath)) {
+    input.Logger.write(`No config/mirror-sync/${input.RepoName}.json template`, 'Warn');
+    return false;
+  }
+  if (!existsSync(workflowPath)) {
+    throw new Error(`Missing mirror workflow template: ${workflowPath}`);
+  }
+
+  if (!refExists(input.MirrorPath, MIRROR_SYNC_BRANCH)) {
+    return false;
+  }
+
+  runGit(input.MirrorPath, ['checkout', MIRROR_SYNC_BRANCH], {}, 5, input.Logger);
+
+  const filesInSync = mirrorSyncFilesMatchTemplates(input.MirrorPath, repoRoot, input.RepoName);
+  const layoutValid = isSyncBranchLayoutValid(input.MirrorPath, input.ContentBranch);
+
+  if (filesInSync && layoutValid) {
+    input.Logger.write(`${input.RepoName}: ${MIRROR_SYNC_BRANCH} templates already in sync`);
+    return false;
+  }
+
+  if (!filesInSync) {
+    const githubDir = join(input.MirrorPath, '.github');
+    const workflowsDir = join(githubDir, 'workflows');
+    mkdirSync(workflowsDir, { recursive: true });
+    copyFileSync(configPath, join(githubDir, 'mirror-sync.json'));
+    copyFileSync(workflowPath, join(workflowsDir, 'mirror-sync.yml'));
+    input.Logger.write(`Applied config/mirror-sync/${input.RepoName}.json to ${input.MirrorPath}`);
+  } else {
+    input.Logger.write(`Repairing ${input.RepoName} ${MIRROR_SYNC_BRANCH} layout`, 'Warn');
+  }
+
+  repairSyncBranchLayout(input.MirrorPath, input.ContentBranch, input.Logger, {
+    Force: true,
+    SkipCheckout: true
+  });
+  return true;
+}
+
+export function pushMirrorSyncBranch(
+  mirrorPath: string,
+  repoName: string,
+  logger: SyncLogger
+): boolean {
+  if (!refExists(mirrorPath, MIRROR_SYNC_BRANCH)) {
+    return false;
+  }
+  const originSync = `origin/${MIRROR_SYNC_BRANCH}`;
+  if (refExists(mirrorPath, originSync)) {
+    const local = runGitText(mirrorPath, ['rev-parse', MIRROR_SYNC_BRANCH]).trim();
+    const remote = runGitText(mirrorPath, ['rev-parse', originSync]).trim();
+    if (local === remote) {
+      logger.write(`${repoName}: ${MIRROR_SYNC_BRANCH} already on origin`);
+      return false;
+    }
+  }
+  runGit(mirrorPath, ['push', '--force-with-lease', 'origin', MIRROR_SYNC_BRANCH], {}, 5, logger);
+  logger.write(`Pushed ${MIRROR_SYNC_BRANCH} to origin for ${repoName}`);
+  return true;
+}
+
+function finishMirrorWorkingCopy(input: {
+  MirrorPath: string;
+  RepoName: string;
+  ContentBranch: string;
+  Logger: SyncLogger;
+}): void {
+  if (!refExists(input.MirrorPath, MIRROR_SYNC_BRANCH)) {
+    return;
+  }
+  applyMirrorSyncTemplate(input);
+}
 
 export function initializeMirrorRepository(input: {
   WorkDirectory: string;
@@ -26,15 +341,79 @@ export function initializeMirrorRepository(input: {
 
   const mirrorPath = join(mirrorRoot, sourceEntry.Repo);
   const url = getMirrorCloneUrl(input.Config, input.SourceKey);
+  const contentBranch = sourceEntry.Branch;
 
   if (!existsSync(mirrorPath)) {
-    input.Logger.write(`Cloning mirror for ${input.SourceKey} (${url})`);
-    runGit(null, ['clone', '--mirror', url, mirrorPath], {}, 5, input.Logger);
+    cloneMirrorWorkingCopy({
+      Url: url,
+      MirrorPath: mirrorPath,
+      ContentBranch: contentBranch,
+      Label: input.SourceKey,
+      Logger: input.Logger
+    });
     setGitRepoUtf8Encoding(mirrorPath);
   } else if (!input.SkipFetch) {
-    input.Logger.write(`Fetching mirror for ${input.SourceKey}`);
-    runGit(mirrorPath, ['fetch', '--prune', 'origin'], {}, 5, input.Logger);
+    fetchMirrorWorkingCopy(mirrorPath, contentBranch, input.SourceKey, input.Logger);
+  } else {
+    assertWorkingCopyMirror(mirrorPath);
+    if (refExists(mirrorPath, MIRROR_SYNC_BRANCH)) {
+      runGit(mirrorPath, ['checkout', MIRROR_SYNC_BRANCH], {}, 5, input.Logger);
+    } else {
+      checkoutMirrorSyncBranch(mirrorPath, contentBranch, input.Logger);
+    }
   }
+
+  finishMirrorWorkingCopy({
+    MirrorPath: mirrorPath,
+    RepoName: sourceEntry.Repo,
+    ContentBranch: contentBranch,
+    Logger: input.Logger
+  });
+
+  setGitRepoUtf8Encoding(mirrorPath);
+  return mirrorPath;
+}
+
+export function initializeNamedMirrorRepository(input: {
+  WorkDirectory: string;
+  RepoName: string;
+  ContentBranch: string;
+  Config: SyncConfig;
+  SkipFetch: boolean;
+  Logger: SyncLogger;
+}): string {
+  const mirrorRoot = join(input.WorkDirectory, 'mirrors');
+  mkdirSync(mirrorRoot, { recursive: true });
+
+  const mirrorPath = join(mirrorRoot, input.RepoName);
+  const url = getMirrorCloneUrlByRepoName(input.Config, input.RepoName);
+
+  if (!existsSync(mirrorPath)) {
+    cloneMirrorWorkingCopy({
+      Url: url,
+      MirrorPath: mirrorPath,
+      ContentBranch: input.ContentBranch,
+      Label: input.RepoName,
+      Logger: input.Logger
+    });
+    setGitRepoUtf8Encoding(mirrorPath);
+  } else if (!input.SkipFetch) {
+    fetchMirrorWorkingCopy(mirrorPath, input.ContentBranch, input.RepoName, input.Logger);
+  } else {
+    assertWorkingCopyMirror(mirrorPath);
+    if (refExists(mirrorPath, MIRROR_SYNC_BRANCH)) {
+      runGit(mirrorPath, ['checkout', MIRROR_SYNC_BRANCH], {}, 5, input.Logger);
+    } else {
+      checkoutMirrorSyncBranch(mirrorPath, input.ContentBranch, input.Logger);
+    }
+  }
+
+  finishMirrorWorkingCopy({
+    MirrorPath: mirrorPath,
+    RepoName: input.RepoName,
+    ContentBranch: input.ContentBranch,
+    Logger: input.Logger
+  });
 
   setGitRepoUtf8Encoding(mirrorPath);
   return mirrorPath;
@@ -87,7 +466,7 @@ export function initializeDestinationAlternates(destinationPath: string, mirrorP
   const alternatesDir = join(destinationPath, '.git', 'objects', 'info');
   mkdirSync(alternatesDir, { recursive: true });
   const normalized = mirrorPaths
-    .map((mirrorPath) => join(realpathSync(mirrorPath), 'objects'))
+    .map((mirrorPath) => mirrorGitObjectsPath(mirrorPath))
     .filter((objectsPath) => existsSync(objectsPath))
     .map((objectsPath) => objectsPath.replace(/\\/g, '/'));
   writeFileSync(join(alternatesDir, 'alternates'), `${normalized.join('\n')}\n`, 'utf8');

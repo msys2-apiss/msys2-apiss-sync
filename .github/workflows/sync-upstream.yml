@@ -1,6 +1,9 @@
 name: Sync upstream
 
 on:
+  push:
+    branches:
+      - main
   repository_dispatch:
     types:
       - upstream-updated
@@ -33,19 +36,21 @@ jobs:
     steps:
       - name: Skip scheduled run when sync already in progress
         id: check
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             if (context.eventName !== 'schedule') {
               core.setOutput('proceed', 'true');
               return;
             }
+            const headers = { 'x-github-api-version': '2026-03-10' };
             const { data } = await github.rest.actions.listWorkflowRuns({
               owner: context.repo.owner,
               repo: context.repo.repo,
               workflow_id: 'sync-upstream.yml',
               status: 'in_progress',
-              per_page: 100
+              per_page: 100,
+              headers,
             });
             const busy = data.workflow_runs.some((run) => run.id !== context.runId);
             if (busy) {

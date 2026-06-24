@@ -1,10 +1,14 @@
 name: Mirror poll
 
-# Trigger mirror-sync on both mirrors via workflow_dispatch. Per-mirror cron
-# (*/5) is unreliable on GitHub-hosted runners; central dispatch is dependable.
+# Trigger mirror-sync on mirrors when content branch HEAD differs from upstream.
+# Logic: node src/cli/mirror-poll.ts (no yarn install; zero runtime deps).
+# unreliable on GitHub-hosted runners; central dispatch is dependable.
 # Mirrors.SyncIntervalMinutes=15 in config/sync.json (cron below).
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
@@ -20,20 +24,21 @@ jobs:
   trigger:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger mirror sync workflows
-        uses: actions/github-script@v7
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            config
+            src
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '26'
+          package-manager-cache: false
+
+      - name: Run mirror poll
         env:
           MIRROR_OWNER: msys2-apiss
-        with:
-          github-token: ${{ secrets.MSYS2_APISS_SYNC_TOKEN }}
-          script: |
-            const mirrors = ['MSYS2-packages', 'MINGW-packages'];
-            for (const repo of mirrors) {
-              await github.rest.actions.createWorkflowDispatch({
-                owner: process.env.MIRROR_OWNER,
-                repo,
-                workflow_id: 'mirror-sync.yml',
-                ref: 'sync',
-              });
-              core.info(`Triggered mirror-sync on ${process.env.MIRROR_OWNER}/${repo}`);
-            }
+          MSYS2_APISS_SYNC_TOKEN: ${{ secrets.MSYS2_APISS_SYNC_TOKEN }}
+        run: node src/cli/mirror-poll.ts

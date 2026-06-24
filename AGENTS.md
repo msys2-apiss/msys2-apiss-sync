@@ -38,3 +38,4 @@ MSYS2 package history into `msys2-apiss/msys2-apiss`.
 | Design changes | update `docs/PLAN.md` first |
 | Run sync | GitHub and local ops -- [`docs/usage.md`](docs/usage.md) |
 | Local testing | `yarn test`, dry-run, pipeline steps -- [`docs/run-local.md`](docs/run-local.md) |
+| Add a mirror | [`docs/add-mirror.md`](docs/add-mirror.md) |

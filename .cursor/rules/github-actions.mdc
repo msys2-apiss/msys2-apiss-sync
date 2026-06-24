@@ -1,9 +1,7 @@
 ---
 description: GitHub Actions workflow conventions for upstream sync
-globs: ".github/workflows/*.yml"
 alwaysApply: false
 ---
-
 # GitHub Actions
 
 ## Manual workflow (`gh`)
@@ -14,25 +12,32 @@ Full copy-paste steps: [`docs/usage.md`](../docs/usage.md).
 
 | File | Purpose |
 |------|---------|
-| `mirror-poll.yml` | Every ~15 min: `workflow_dispatch` both mirror repos |
-| `sync-upstream.yml` | Incremental sync: `repository_dispatch`, hourly cron, daily cron, manual |
-| `sync-bootstrap.yml` | Manual full history replay only |
-| `sync-rebuild.yml` | Manual clean replay |
-| `sync-verify.yml` | Scheduled dry-run verification |
+| `mirror-poll.yml` | Push/cron/manual: runs `yarn mirror-poll` (dispatch when HEAD != upstream) |
+| `sync-upstream.yml` | Push to `main`, `repository_dispatch`, hourly/daily cron, manual (`clean=true`) |
+
+Dry-run manifest verification: run locally (`yarn sync --dry-run --skip-fetch`); see
+[`docs/run-local.md`](../docs/run-local.md).
 
 ## Mirror repos (separate repositories)
 
-| Mirror | Upstream |
-|--------|----------|
-| `msys2-apiss/MSYS2-packages` | `msys2/MSYS2-packages` |
-| `msys2-apiss/MINGW-packages` | `msys2/MINGW-packages` |
+| Mirror | Upstream | Replay into msys2-apiss |
+|--------|----------|-------------------------|
+| `msys2-apiss/MSYS2-packages` | `msys2/MSYS2-packages` | yes (`ports/`) |
+| `msys2-apiss/MINGW-packages` | `msys2/MINGW-packages` | yes (`ports-mingw/`) |
+| `msys2-apiss/mingw-w64` | [SourceForge mingw-w64](https://git.code.sf.net/p/mingw-w64/mingw-w64) | no (mirror-only) |
+| `msys2-apiss/glibc` | [sourceware glibc](https://sourceware.org/git/glibc.git) | no (mirror-only) |
 
-Branch layout: **`sync`** (default) holds workflow YAML only; **`master`** is a
-pure fast-forward copy of upstream `master` (no workflow commits on master).
+Branch layout: **`sync`** (default) holds workflow and config; **`master`** is a
+pure fast-forward copy of upstream (no workflow commits on master).
 
-Templates: `docs/examples/mirror-sync.yml`.
-Install under `sync/.github/workflows/`. Set `UPSTREAM_REPO` variable and
-`SYNC_DISPATCH_TOKEN` secret on each mirror repo.
+Template: `config/mirror-template/mirror-sync.yml`. Per-repo JSON:
+`config/mirror-sync/<repo-name>.json` (applied to `sync/.github/mirror-sync.json`
+by `yarn fetch-mirrors`). All mirrors: `SYNC_DISPATCH_TOKEN` (PAT with `repo` and
+`workflow` scopes; git push and dispatch). Package mirrors: `Notify.Enabled`
+true. Mirror-only: `Notify.Enabled` false (secret still required when upstream
+has `.github/workflows/*`). Mirror
+branches are exact fast-forward copies of upstream (`master` matches upstream
+SHA). Tags sync by default (`SyncTags` omitted or true); set `SyncTags` false to skip.
 
 ## Runner
 
@@ -48,13 +53,14 @@ concurrency:
 ```
 
 Long sync runs must not be cancelled by the next hourly cron. Scheduled runs
-skip when another `sync-upstream` job is already in progress; dispatch and
+skip when another `sync-upstream` job is already in progress; push, dispatch, and
 manual runs queue until the current run finishes.
 
 ## Secrets
 
 - `MSYS2_APISS_SYNC_TOKEN`: write access to `msys2-apiss/msys2-apiss` and this repo
-- `SYNC_DISPATCH_TOKEN`: mirror repos only; dispatch `msys2-apiss-sync`
+- `SYNC_DISPATCH_TOKEN`: every mirror repo; PAT with `repo` + `workflow` for git
+  push (exact sync) and repository_dispatch to `msys2-apiss-sync`
 - Never log tokens; pass via `env:` to script steps only.
 
 ## Push policy

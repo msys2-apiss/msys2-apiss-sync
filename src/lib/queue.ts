@@ -5,6 +5,7 @@ import {
   precomputeForkSafeFlagsForQueue
 } from './fork-safe.ts';
 import { runGitText, streamGitText } from './git.ts';
+import { resolveMirrorContentBranchRef } from './history.ts';
 
 export { buildFirstParentSpine } from './fork-safe.ts';
 
@@ -81,7 +82,8 @@ export function getReplayAgeCutoffUnix(config: SyncConfig, nowUnix = Math.floor(
 }
 
 export async function buildMirrorCommitParentMap(mirrorPath: string, branch = 'master'): Promise<CommitParentMap> {
-  const raw = await streamGitText(mirrorPath, ['rev-list', '--parents', branch]);
+  const branchRef = resolveMirrorContentBranchRef(mirrorPath, branch);
+  const raw = await streamGitText(mirrorPath, ['rev-list', '--parents', branchRef]);
   const map = new Map<string, readonly string[]>();
   for (const line of raw.split('\n')) {
     const trimmed = line.trim();

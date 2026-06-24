@@ -26,11 +26,33 @@ keep style stable and leave everything else byte-for-byte unchanged.
 - If the request is ambiguous or scope is unclear, stop and ask.
 - Debugging does not expand scope.
 
+## Edit in place (file order)
+
+When changing existing code, edit it where it already lives. Do not cut a
+function, type, or block from one place and paste it elsewhere in the same file,
+even if that seems more logical (e.g. next to a helper it calls).
+
+- Preserve declaration order: functions, types, exports, and top-level blocks
+  stay in their current positions unless the user asks to reorder.
+- To extend behavior, patch the existing function body and signature in place.
+  Add new types or helpers adjacent to their only caller only when there is no
+  existing symbol to extend.
+- Do not "rewrite from scratch" in a new location when an in-place edit suffices.
+- A good diff mostly shows `+`/`-` on contiguous lines. Treat as a failure:
+  deleting a whole function in one place and adding the same (or renamed) function
+  in another place without an explicit reorder request.
+
+Example (bad): move `runPackageList` above `runSinglePackage` because it calls
+`readPackageList` -- large move diff, same file order broken.
+Example (good): keep `runPackageList` at the bottom of the file; change only its
+parameter list and loop body.
+
 ## Do not, unless explicitly requested
 
 - Refactor, rename, or move code.
 - Extract constants, helpers, or functions.
 - Reformat, reflow, reorder imports, or edit whitespace.
+- Change line endings (LF, CRLF, or CR) on any file you touch.
 - Edit comments that are not part of the requested change.
 - Change defaults, entry points, or control flow.
 - Replace a working approach with a different one.
@@ -56,7 +78,16 @@ JSON/YAML keys, command strings, exit codes, and parseable log or output text.
 
 Applies to all text you write or edit: code, comments, docs, chat, commits, PRs.
 
-- Preserve original file encoding and line endings.
+- Preserve original file encoding and line endings on every edit, for every file
+  type (source, config, YAML, JSON, Markdown, shell, rules, etc.).
+- Do not convert LF to CRLF or CRLF to LF on existing files. Unchanged lines
+  must keep the same line-ending bytes as before the edit.
+- Match the file's existing line-ending style on new lines you add. If the file
+  uses LF, write LF; if CRLF, write CRLF. Do not "normalize" endings unless
+  the user explicitly asks.
+- Prefer in-place edits (patch a few lines) over rewriting or re-copying a whole
+  file. Full-file writes and OS copy commands often change line endings on
+  Windows; avoid them when updating an existing tracked file.
 - Never rewrite or re-encode untouched text, including non-ASCII text (e.g. GBK,
   UTF-8 comments, copyright or bullet symbols).
 - On new or modified lines, use ASCII punctuation only. Do not introduce smart
@@ -108,4 +139,10 @@ Before sending a reply or creating a commit or PR:
 - Re-scan the diff and drafted text for mojibake, replacement characters, and
   non-ASCII punctuation on new or modified lines.
 - Confirm every changed region maps to something the user requested.
+- Scan `git diff` for move/reorder noise: the same symbol removed in one hunk
+  and re-added elsewhere, import blocks shuffled, or whole functions relocated.
+  If found, undo the move and apply an in-place edit instead.
+- Scan `git diff` for line-ending churn: every line deleted and re-added with
+  the same text (large +N/-N with no real content change). If found, restore
+  the file's original line endings and re-apply only the intended content edits.
 - If anything fails, fix or restore it before sending.

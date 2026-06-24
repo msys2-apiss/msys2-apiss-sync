@@ -1,0 +1,9 @@
+{
+  "UpstreamUrl": "https://git.code.sf.net/p/mingw-w64/mingw-w64",
+  "Branches": [
+    { "Upstream": "master", "Mirror": "master" }
+  ],
+  "Notify": {
+    "Enabled": false
+  }
+}
