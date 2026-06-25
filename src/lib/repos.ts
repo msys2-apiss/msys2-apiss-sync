@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, realpathSync, writeFileSync, copyFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -6,6 +7,7 @@ import {
   getDestinationCloneUrl,
   getMirrorCloneUrl,
   getMirrorCloneUrlByRepoName,
+  getMirrorOnlyEntryForRepo,
   getSourceConfigEntry,
   getSourceRepoSlug,
   getSyncRepoRoot,
@@ -200,6 +202,72 @@ function mirrorGitObjectsPath(mirrorPath: string): string {
   return join(realpathSync(mirrorPath), '.git', 'objects');
 }
 
+function remoteHasGitBranch(url: string, branch: string): boolean {
+  try {
+    const out = execSync(`git ls-remote "${url}" "refs/heads/${branch}"`, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe']
+    }).trim();
+    return out.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function loadMirrorUpstreamUrl(config: SyncConfig, repoName: string, repoRoot: string): string | null {
+  const configPath = getMirrorSyncConfigPath(repoRoot, repoName);
+  if (existsSync(configPath)) {
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as { UpstreamUrl?: string };
+    if (parsed.UpstreamUrl) {
+      return parsed.UpstreamUrl;
+    }
+  }
+  return getMirrorOnlyEntryForRepo(config, repoName)?.UpstreamUrl ?? null;
+}
+
+export function bootstrapMirrorFromUpstreamRoot(input: {
+  UpstreamUrl: string;
+  OriginUrl: string;
+  MirrorPath: string;
+  ContentBranch: string;
+  RepoName: string;
+  Logger: SyncLogger;
+}): void {
+  input.Logger.write(
+    `Bootstrapping ${input.RepoName}: fetch upstream ${input.ContentBranch} commit graph ` +
+      '(blob:none), checkout root only'
+  );
+  runGit(null, ['init', input.MirrorPath], {}, 5, input.Logger);
+  runGit(input.MirrorPath, ['remote', 'add', 'upstream', input.UpstreamUrl], {}, 5, input.Logger);
+  runGit(input.MirrorPath, ['remote', 'add', 'origin', input.OriginUrl], {}, 5, input.Logger);
+  runGit(
+    input.MirrorPath,
+    [
+      'fetch',
+      '--filter=blob:none',
+      'upstream',
+      `refs/heads/${input.ContentBranch}:refs/remotes/upstream/${input.ContentBranch}`
+    ],
+    {},
+    5,
+    input.Logger
+  );
+  const upstreamRef = `upstream/${input.ContentBranch}`;
+  const root = firstCommitOfBranch(input.MirrorPath, upstreamRef);
+  runGit(input.MirrorPath, ['checkout', '-B', input.ContentBranch, root], {}, 5, input.Logger);
+  runGit(
+    input.MirrorPath,
+    ['update-ref', `refs/remotes/origin/${input.ContentBranch}`, root],
+    {},
+    5,
+    input.Logger
+  );
+  runGit(input.MirrorPath, ['checkout', '-B', MIRROR_SYNC_BRANCH, root], {}, 5, input.Logger);
+  input.Logger.write(
+    `${input.RepoName}: content root ${root.slice(0, 8)} on ${input.ContentBranch}, ${MIRROR_SYNC_BRANCH} ready`
+  );
+}
+
 function cloneMirrorWorkingCopy(input: {
   Url: string;
   MirrorPath: string;
@@ -312,6 +380,35 @@ export function applyMirrorSyncTemplate(input: {
   return true;
 }
 
+export function pushMirrorContentBranch(
+  mirrorPath: string,
+  contentBranch: string,
+  repoName: string,
+  logger: SyncLogger
+): boolean {
+  if (!refExists(mirrorPath, contentBranch)) {
+    return false;
+  }
+  const originBranch = `origin/${contentBranch}`;
+  const local = runGitText(mirrorPath, ['rev-parse', contentBranch]).trim();
+  if (refExists(mirrorPath, originBranch)) {
+    const remote = runGitText(mirrorPath, ['rev-parse', originBranch]).trim();
+    if (local === remote) {
+      logger.write(`${repoName}: ${contentBranch} already on origin`);
+      return false;
+    }
+  }
+  runGit(
+    mirrorPath,
+    ['push', '-u', 'origin', `${contentBranch}:${contentBranch}`],
+    {},
+    5,
+    logger
+  );
+  logger.write(`Pushed ${contentBranch} to origin for ${repoName}`);
+  return true;
+}
+
 export function pushMirrorSyncBranch(
   mirrorPath: string,
   repoName: string,
@@ -405,15 +502,36 @@ export function initializeNamedMirrorRepository(input: {
 
   const mirrorPath = join(mirrorRoot, input.RepoName);
   const url = getMirrorCloneUrlByRepoName(input.Config, input.RepoName);
+  const repoRoot = getSyncRepoRoot();
 
   if (!existsSync(mirrorPath)) {
-    cloneMirrorWorkingCopy({
-      Url: url,
-      MirrorPath: mirrorPath,
-      ContentBranch: input.ContentBranch,
-      Label: input.RepoName,
-      Logger: input.Logger
-    });
+    const hasOriginBranch =
+      remoteHasGitBranch(url, input.ContentBranch) ||
+      remoteHasGitBranch(url, MIRROR_SYNC_BRANCH);
+    if (hasOriginBranch) {
+      cloneMirrorWorkingCopy({
+        Url: url,
+        MirrorPath: mirrorPath,
+        ContentBranch: input.ContentBranch,
+        Label: input.RepoName,
+        Logger: input.Logger
+      });
+    } else {
+      const upstreamUrl = loadMirrorUpstreamUrl(input.Config, input.RepoName, repoRoot);
+      if (!upstreamUrl) {
+        throw new Error(
+          `${input.RepoName}: empty origin and no UpstreamUrl; add config/mirror-sync/${input.RepoName}.json`
+        );
+      }
+      bootstrapMirrorFromUpstreamRoot({
+        UpstreamUrl: upstreamUrl,
+        OriginUrl: url,
+        MirrorPath: mirrorPath,
+        ContentBranch: input.ContentBranch,
+        RepoName: input.RepoName,
+        Logger: input.Logger
+      });
+    }
     setGitRepoUtf8Encoding(mirrorPath);
   } else if (!input.SkipFetch) {
     fetchMirrorWorkingCopy(mirrorPath, input.ContentBranch, input.RepoName, input.Logger);

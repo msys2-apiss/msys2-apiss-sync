@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { describe, expect, test } from 'vitest';
 
-import { applyMirrorSyncTemplate, checkoutDestinationReplayBranch, checkoutNewDestinationBranchFromBase, repairSyncBranchLayout, resolveUpstreamCursorSha, setDestinationBranchSha } from '../../src/lib/repos.ts';
+import { applyMirrorSyncTemplate, bootstrapMirrorFromUpstreamRoot, checkoutDestinationReplayBranch, checkoutNewDestinationBranchFromBase, repairSyncBranchLayout, resolveUpstreamCursorSha, setDestinationBranchSha } from '../../src/lib/repos.ts';
 import type { SyncLogger } from '../../src/lib/log.ts';
 import { formatReplayCommitMessage } from '../../src/lib/replay.ts';
 
@@ -346,6 +346,49 @@ describe('applyMirrorSyncTemplate', () => {
       });
       expect(skipped).toBe(false);
       expect(runGit(mirrorPath, ['rev-parse', 'sync']).trim()).toBe(syncSha);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('bootstrapMirrorFromUpstreamRoot', () => {
+  const noopLogger: SyncLogger = {
+    write() {},
+    close() {}
+  };
+
+  test('checks out root commit of upstream content branch only', () => {
+    const root = mkdtempSync(join(tmpdir(), 'msys2-apiss-sync-bootstrap-root-'));
+    try {
+      const upstreamPath = join(root, 'upstream.git');
+      const mirrorPath = join(root, 'mirror');
+      spawnSync('git', ['init', '--bare', upstreamPath], { encoding: 'utf8', windowsHide: true });
+
+      const workPath = join(root, 'work');
+      initTestRepo(workPath);
+      writeFileSync(join(workPath, 'root.txt'), 'root\n', 'utf8');
+      runGit(workPath, ['add', 'root.txt']);
+      runGit(workPath, ['commit', '-m', 'root']);
+      const rootSha = runGit(workPath, ['rev-parse', 'HEAD']).trim();
+      writeFileSync(join(workPath, 'tip.txt'), 'tip\n', 'utf8');
+      runGit(workPath, ['add', 'tip.txt']);
+      runGit(workPath, ['commit', '-m', 'tip']);
+      runGit(workPath, ['push', '-u', upstreamPath, 'master']);
+
+      bootstrapMirrorFromUpstreamRoot({
+        UpstreamUrl: upstreamPath,
+        OriginUrl: 'https://example.com/empty.git',
+        MirrorPath: mirrorPath,
+        ContentBranch: 'master',
+        RepoName: 'test-mirror',
+        Logger: noopLogger
+      });
+
+      expect(runGit(mirrorPath, ['rev-parse', 'master']).trim()).toBe(rootSha);
+      expect(runGit(mirrorPath, ['rev-parse', 'sync']).trim()).toBe(rootSha);
+      expect(runGit(mirrorPath, ['rev-parse', 'refs/remotes/origin/master']).trim()).toBe(rootSha);
+      expect(runGit(mirrorPath, ['rev-list', '--count', 'master']).trim()).toBe('1');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -11,10 +11,12 @@ import {
 import { getMirrorTipSha } from '../lib/history.ts';
 import { createSyncLogger, getWorkDirectory, setSyncUtf8Environment } from '../lib/log.ts';
 import { runGitText } from '../lib/git.ts';
+import { bootstrapMirrorWorkflowIfToken } from '../lib/mirror-poll.ts';
 import {
   initializeMirrorRepository,
   initializeNamedMirrorRepository,
   MIRROR_SYNC_BRANCH,
+  pushMirrorContentBranch,
   pushMirrorSyncBranch,
   repairSyncBranchLayout
 } from '../lib/repos.ts';
@@ -129,8 +131,19 @@ async function main(): Promise<void> {
       if (!repaired) {
         logger.write(`${repoName}: ${MIRROR_SYNC_BRANCH} layout already valid`);
       }
-      if (push && repaired) {
-        pushMirrorSyncBranch(mirrorPath, repoName, logger);
+      if (push) {
+        if (repaired) {
+          pushMirrorContentBranch(mirrorPath, contentBranch, repoName, logger);
+          pushMirrorSyncBranch(mirrorPath, repoName, logger);
+        }
+        await bootstrapMirrorWorkflowIfToken({
+          Owner: config.Mirrors.Owner,
+          RepoName: repoName,
+          ContentBranch: contentBranch,
+          Logger: logger,
+          TriggerSync: repaired,
+          WaitForSync: repaired
+        });
       }
       logMirrorTips(logger, repoName, mirrorPath, contentBranch, true);
     }

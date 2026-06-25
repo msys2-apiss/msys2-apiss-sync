@@ -22,7 +22,7 @@ function fakeGitHub(branchSha: string | null): MirrorPollGitHub {
     async getBranchSha() {
       return branchSha;
     },
-    async dispatchMirrorSync() {}
+    async dispatchMirrorSync(_repo, _contentBranch) {}
   };
 }
 

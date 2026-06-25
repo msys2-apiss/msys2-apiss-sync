@@ -1,7 +1,13 @@
 import { getMirrorOnlyEntryForRepo, getSourceConfigEntry, getSyncRepoRoot, getMirrorPollRepoNames, loadSyncConfig } from '../lib/config.ts';
 import { getMirrorTipSha } from '../lib/history.ts';
 import { createSyncLogger, getWorkDirectory, setSyncUtf8Environment } from '../lib/log.ts';
-import { initializeMirrorRepository, initializeNamedMirrorRepository, pushMirrorSyncBranch } from '../lib/repos.ts';
+import { bootstrapMirrorWorkflowIfToken } from '../lib/mirror-poll.ts';
+import {
+  initializeMirrorRepository,
+  initializeNamedMirrorRepository,
+  pushMirrorContentBranch,
+  pushMirrorSyncBranch
+} from '../lib/repos.ts';
 import { readFlag } from './args.ts';
 
 async function main(): Promise<void> {
@@ -28,7 +34,16 @@ async function main(): Promise<void> {
       const branch = config.Sources[sourceKey].Branch;
       const repoName = getSourceConfigEntry(config, sourceKey).Repo;
       if (pushSync) {
+        pushMirrorContentBranch(mirrorPath, branch, repoName, logger);
         pushMirrorSyncBranch(mirrorPath, repoName, logger);
+        await bootstrapMirrorWorkflowIfToken({
+          Owner: config.Mirrors.Owner,
+          RepoName: repoName,
+          ContentBranch: branch,
+          Logger: logger,
+          TriggerSync: true,
+          WaitForSync: true
+        });
       }
       const tip = getMirrorTipSha(mirrorPath, branch);
       const syncTip = getMirrorTipSha(mirrorPath, 'sync');
@@ -53,7 +68,16 @@ async function main(): Promise<void> {
         Logger: logger
       });
       if (pushSync) {
+        pushMirrorContentBranch(mirrorPath, branch, repoName, logger);
         pushMirrorSyncBranch(mirrorPath, repoName, logger);
+        await bootstrapMirrorWorkflowIfToken({
+          Owner: config.Mirrors.Owner,
+          RepoName: repoName,
+          ContentBranch: branch,
+          Logger: logger,
+          TriggerSync: true,
+          WaitForSync: true
+        });
       }
       const syncTip = getMirrorTipSha(mirrorPath, 'sync');
       const tip = getMirrorTipSha(mirrorPath, branch);

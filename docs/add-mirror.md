@@ -138,20 +138,41 @@ fetch/poll metadata:
 ### 2. Create GitHub mirror repo
 
 1. Create empty repo `msys2-apiss/my-tool` on GitHub.
-2. Clone locally into the standard path (or let `yarn fetch-mirrors` create it
-   after the empty repo exists and has at least one push, or clone manually):
-
-```bash
-yarn fetch-mirrors
-```
-
-3. `yarn fetch-mirrors` clones into `.work/mirrors/my-tool/` on branch **`sync`**
-   and applies `config/mirror-sync/my-tool.json`.
-
-4. Push `sync` when ready:
+2. Run bootstrap (fetches upstream commit graph blob:none, checks out root only,
+   pushes content branch + `sync`, registers workflow, runs first sync, restores
+   default branch):
 
 ```bash
 yarn fetch-mirrors --skip-fetch --push-sync
+```
+
+For an empty GitHub mirror this clones only the **root commit** of the upstream
+content branch locally, pushes that as `master`/`main`, pushes `sync`, triggers
+`mirror-sync` on GitHub (full upstream fetch happens in CI), waits for that run,
+then sets default back to the content branch.
+
+3. `yarn fetch-mirrors` clones into `.work/mirrors/my-tool/` on branch **`sync`**
+   and applies `config/mirror-sync/my-tool.json` when the mirror already exists.
+
+4. Re-push workflow templates after config edits:
+
+```bash
+yarn fetch-mirrors --skip-fetch --push-sync
+```
+
+On first bootstrap, `--push-sync` temporarily sets default branch to `sync` so
+GitHub registers `mirror-sync.yml`, triggers one sync run, **waits for it to
+finish**, then sets default back to the content branch. Later `mirror-poll`
+dispatches on ref `sync` without changing default branch again.
+
+Or manually:
+
+```bash
+# after pushing content root + sync locally
+gh api repos/msys2-apiss/my-tool -X PATCH -f default_branch=sync
+gh workflow run mirror-sync.yml --repo msys2-apiss/my-tool --ref sync
+gh run watch --repo msys2-apiss/my-tool $(gh run list --repo msys2-apiss/my-tool --workflow mirror-sync.yml --limit 1 --json databaseId -q '.[0].databaseId')
+gh api repos/msys2-apiss/my-tool -X PATCH -f default_branch=master
 ```
 
 Set repo secret `SYNC_DISPATCH_TOKEN` on every mirror (see [`usage.md`](usage.md)).
