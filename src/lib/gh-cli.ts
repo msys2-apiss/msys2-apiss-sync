@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 
 import type { SyncLogger } from './log.ts';
+import { MIRROR_SYNC_BRANCH } from './repos.ts';
 
 function runGh(args: string[]): { ok: boolean; stdout: string; stderr: string } {
   const result = spawnSync('gh', args, {
@@ -19,9 +20,19 @@ export function ghCommandAvailable(): boolean {
   return runGh(['--version']).ok;
 }
 
+export function ghAuthenticated(): boolean {
+  if (!ghCommandAvailable()) {
+    return false;
+  }
+  return runGh(['auth', 'status']).ok;
+}
+
 export function requireGhCommand(): void {
   if (!ghCommandAvailable()) {
     throw new Error('gh CLI is required (install gh and run gh auth login)');
+  }
+  if (!ghAuthenticated()) {
+    throw new Error('gh is not authenticated; run gh auth login');
   }
 }
 
@@ -83,14 +94,18 @@ export function ghMirrorSyncWorkflowRegistered(owner: string, repoName: string):
   }
   const result = runGh([
     'api',
-    `repos/${owner}/${repoName}/actions/workflows`,
+    `repos/${owner}/${repoName}/contents/.github/workflows/mirror-sync.yml?ref=${MIRROR_SYNC_BRANCH}`,
     '--jq',
-    '[.workflows[].path] | index(".github/workflows/mirror-sync.yml") != null'
+    '.name'
   ]);
   if (!result.ok) {
+    const detail = `${result.stderr} ${result.stdout}`.toLowerCase();
+    if (detail.includes('404') || detail.includes('not found')) {
+      return false;
+    }
     return null;
   }
-  return result.stdout === 'true';
+  return result.stdout === 'mirror-sync.yml';
 }
 
 export function ghMirrorSyncRunInProgress(owner: string, repoName: string): boolean | null {
@@ -105,7 +120,7 @@ export function ghMirrorSyncRunInProgress(owner: string, repoName: string): bool
     '--workflow',
     'mirror-sync.yml',
     '--branch',
-    'sync',
+    MIRROR_SYNC_BRANCH,
     '--status',
     'in_progress',
     '--limit',
@@ -141,7 +156,7 @@ export function ghDispatchMirrorSyncWorkflow(
     '--repo',
     `${owner}/${repoName}`,
     '--ref',
-    'sync'
+    MIRROR_SYNC_BRANCH
   ]);
   if (result.ok) {
     return { ok: true };

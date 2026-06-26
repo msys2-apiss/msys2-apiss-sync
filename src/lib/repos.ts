@@ -22,7 +22,7 @@ import { parseReplayCommitSourceSha, getFirstParent } from './replay.ts';
 import { runGit, runGitText, testGitAncestor } from './git.ts';
 import type { SyncLogger } from './log.ts';
 
-export const MIRROR_SYNC_BRANCH = 'sync';
+export const MIRROR_SYNC_BRANCH = 'msys2-apiss-sync';
 
 export const MIRROR_SYNC_COMMIT_MESSAGE =
   'Mirror sync workflow from msys2-apiss-sync\n\n' +
@@ -100,6 +100,12 @@ export function repairSyncBranchLayout(
   if (!options?.SkipCheckout) {
     runGit(mirrorPath, ['checkout', MIRROR_SYNC_BRANCH], {}, 5, logger);
   }
+  const githubDir = join(mirrorPath, '.github');
+  if (!existsSync(githubDir)) {
+    throw new Error(
+      `${mirrorPath}: no .github on ${MIRROR_SYNC_BRANCH}. Apply mirror-sync templates before repair.`
+    );
+  }
   runGit(mirrorPath, ['add', '-A', '.github'], {}, 5, logger);
   let githubSubTree: string;
   try {
@@ -169,19 +175,70 @@ function validateSyncBranchLayout(
   );
 }
 
+function fetchOriginBranchOptional(
+  mirrorPath: string,
+  branch: string,
+  logger: SyncLogger
+): void {
+  try {
+    runGit(
+      mirrorPath,
+      ['fetch', 'origin', `${branch}:refs/remotes/origin/${branch}`],
+      {},
+      5,
+      logger
+    );
+  } catch {
+    // Remote branch may not exist.
+  }
+}
+
+function fetchOriginMirrorSyncRefs(
+  mirrorPath: string,
+  contentBranch: string,
+  logger: SyncLogger
+): void {
+  fetchOriginBranchOptional(mirrorPath, MIRROR_SYNC_BRANCH, logger);
+  fetchOriginBranchOptional(mirrorPath, contentBranch, logger);
+}
+
+function bootstrapLocalMirrorSyncBranch(
+  mirrorPath: string,
+  contentBranch: string,
+  logger: SyncLogger
+): void {
+  const originContent = `origin/${contentBranch}`;
+  if (!refExists(mirrorPath, originContent)) {
+    throw new Error(
+      `${mirrorPath}: cannot bootstrap ${MIRROR_SYNC_BRANCH}; missing ${originContent}`
+    );
+  }
+  const root = firstCommitOfBranch(mirrorPath, originContent);
+  logger.write(
+    `Bootstrapping local ${MIRROR_SYNC_BRANCH} from first commit of ${originContent} ` +
+      `(${root.slice(0, 8)})`
+  );
+  runGit(mirrorPath, ['checkout', '-B', MIRROR_SYNC_BRANCH, root], {}, 5, logger);
+}
+
 function checkoutMirrorSyncBranch(
   mirrorPath: string,
   contentBranch: string,
   logger: SyncLogger,
   autoRepair = true
 ): void {
+  fetchOriginMirrorSyncRefs(mirrorPath, contentBranch, logger);
   const originSync = `origin/${MIRROR_SYNC_BRANCH}`;
-  if (!refExists(mirrorPath, originSync)) {
-    throw new Error(
-      `${mirrorPath}: missing ${originSync}. Bootstrap ${MIRROR_SYNC_BRANCH} per docs/add-mirror.md.`
-    );
+  let bootstrapped = false;
+  if (refExists(mirrorPath, originSync)) {
+    runGit(mirrorPath, ['checkout', '-B', MIRROR_SYNC_BRANCH, originSync], {}, 5, logger);
+  } else {
+    bootstrapLocalMirrorSyncBranch(mirrorPath, contentBranch, logger);
+    bootstrapped = true;
   }
-  runGit(mirrorPath, ['checkout', '-B', MIRROR_SYNC_BRANCH, originSync], {}, 5, logger);
+  if (bootstrapped) {
+    return;
+  }
   if (autoRepair && !isSyncBranchLayoutValid(mirrorPath, contentBranch)) {
     logger.write(`Repairing ${MIRROR_SYNC_BRANCH} layout`, 'Warn');
     repairSyncBranchLayout(mirrorPath, contentBranch, logger);
@@ -226,7 +283,7 @@ export function mirrorOriginHasContent(originUrl: string, contentBranch: string)
   );
 }
 
-function isMirrorWorkingCopyIncomplete(mirrorPath: string, contentBranch: string): boolean {
+function isMirrorWorkingCopyBroken(mirrorPath: string): boolean {
   if (!existsSync(mirrorPath)) {
     return false;
   }
@@ -238,7 +295,10 @@ function isMirrorWorkingCopyIncomplete(mirrorPath: string, contentBranch: string
   } catch {
     return true;
   }
-  return !refExists(mirrorPath, contentBranch) || !refExists(mirrorPath, MIRROR_SYNC_BRANCH);
+  if (!refExists(mirrorPath, 'HEAD')) {
+    return true;
+  }
+  return false;
 }
 
 function loadMirrorUpstreamUrl(config: SyncConfig, repoName: string, repoRoot: string): string | null {
@@ -629,9 +689,9 @@ export function initializeNamedMirrorRepository(input: {
   const url = getMirrorCloneUrlByRepoName(input.Config, input.RepoName);
   const repoRoot = getSyncRepoRoot();
 
-  if (isMirrorWorkingCopyIncomplete(mirrorPath, input.ContentBranch)) {
+  if (isMirrorWorkingCopyBroken(mirrorPath)) {
     input.Logger.write(
-      `${input.RepoName}: incomplete local mirror; re-initializing from upstream root`,
+      `${input.RepoName}: invalid local mirror (not a git working copy); re-initializing`,
       'Warn'
     );
     rmSync(mirrorPath, { recursive: true, force: true });

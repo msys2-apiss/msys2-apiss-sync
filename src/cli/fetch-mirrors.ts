@@ -15,6 +15,7 @@ import {
 import {
   initializeNamedMirrorRepository,
   mirrorOriginHasContent,
+  MIRROR_SYNC_BRANCH,
   pushMirrorContentBranch,
   pushMirrorSyncBranch
 } from '../lib/repos.ts';
@@ -92,10 +93,10 @@ async function main(): Promise<void> {
           Logger: logger
         });
       }
-      const syncTip = getMirrorTipSha(mirrorPath, 'sync');
+      const syncTip = getMirrorTipSha(mirrorPath, MIRROR_SYNC_BRANCH);
       const tip = getMirrorTipSha(mirrorPath, branch);
       logger.write(
-        `${repoName} mirror: ${mirrorPath} (sync = ${syncTip.slice(0, 8)}, ${branch} = ${tip.slice(0, 8)})`
+        `${repoName} mirror: ${mirrorPath} (${MIRROR_SYNC_BRANCH} = ${syncTip.slice(0, 8)}, ${branch} = ${tip.slice(0, 8)})`
       );
     }
 

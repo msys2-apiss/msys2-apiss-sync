@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { describe, expect, test } from 'vitest';
 
-import { applyMirrorSyncTemplate, bootstrapMirrorFromUpstreamRoot, checkoutDestinationReplayBranch, checkoutNewDestinationBranchFromBase, mirrorOriginHasContent, pushMirrorContentBranch, repairSyncBranchLayout, resolveUpstreamCursorSha, setDestinationBranchSha } from '../../src/lib/repos.ts';
+import { applyMirrorSyncTemplate, bootstrapMirrorFromUpstreamRoot, checkoutDestinationReplayBranch, checkoutNewDestinationBranchFromBase, mirrorOriginHasContent, MIRROR_SYNC_BRANCH, pushMirrorContentBranch, repairSyncBranchLayout, resolveUpstreamCursorSha, setDestinationBranchSha } from '../../src/lib/repos.ts';
 import type { SyncLogger } from '../../src/lib/log.ts';
 import { DEFAULT_REPLAY_COMMIT_MESSAGE_TEMPLATE } from '../../src/lib/config.ts';
 import { formatReplayCommitMessage } from '../../src/lib/replay.ts';
@@ -227,7 +227,7 @@ describe('repairSyncBranchLayout', () => {
 
       runGit(repoPath, ['update-ref', 'refs/remotes/origin/master', masterTip]);
 
-      runGit(repoPath, ['checkout', '--orphan', 'sync']);
+      runGit(repoPath, ['checkout', '--orphan', MIRROR_SYNC_BRANCH]);
       mkdirSync(join(repoPath, '.github', 'workflows'), { recursive: true });
       writeFileSync(join(repoPath, '.github', 'workflows', 'mirror-sync.yml'), 'name: test\n', 'utf8');
       runGit(repoPath, ['add', '.github']);
@@ -237,17 +237,19 @@ describe('repairSyncBranchLayout', () => {
       const repaired = repairSyncBranchLayout(repoPath, 'master', noopLogger);
       expect(repaired).toBe(true);
 
-      const syncOnly = runGit(repoPath, ['rev-list', '--count', 'sync', '^origin/master']).trim();
+      const syncOnly = runGit(repoPath, ['rev-list', '--count', MIRROR_SYNC_BRANCH, '^origin/master']).trim();
       expect(syncOnly).toBe('1');
-      expect(runGit(repoPath, ['rev-parse', 'sync^']).trim()).toBe(masterRoot);
-      expect(runGit(repoPath, ['log', '-1', '--format=%s', 'sync']).trim()).toBe(
+      expect(runGit(repoPath, ['rev-parse', `${MIRROR_SYNC_BRANCH}^`]).trim()).toBe(masterRoot);
+      expect(runGit(repoPath, ['log', '-1', '--format=%s', MIRROR_SYNC_BRANCH]).trim()).toBe(
         'Mirror sync workflow from msys2-apiss-sync'
       );
-      expect(runGit(repoPath, ['log', '-1', '--format=%b', 'sync']).trim()).toBe(
+      expect(runGit(repoPath, ['log', '-1', '--format=%b', MIRROR_SYNC_BRANCH]).trim()).toBe(
         'https://github.com/msys2-apiss/msys2-apiss-sync/tree/main/config/mirror-sync\n' +
           'https://github.com/msys2-apiss/msys2-apiss-sync/blob/main/config/mirror-template/mirror-sync.yml'
       );
-      expect(runGit(repoPath, ['rev-parse', 'sync:.github/workflows/mirror-sync.yml']).trim()).toBeTruthy();
+      expect(
+        runGit(repoPath, ['rev-parse', `${MIRROR_SYNC_BRANCH}:.github/workflows/mirror-sync.yml`]).trim()
+      ).toBeTruthy();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -281,7 +283,7 @@ describe('applyMirrorSyncTemplate', () => {
       const masterRoot = runGit(mirrorPath, ['rev-parse', 'HEAD']).trim();
       runGit(mirrorPath, ['update-ref', 'refs/remotes/origin/master', masterRoot]);
 
-      runGit(mirrorPath, ['checkout', '--orphan', 'sync']);
+      runGit(mirrorPath, ['checkout', '--orphan', MIRROR_SYNC_BRANCH]);
       mkdirSync(join(mirrorPath, '.github', 'workflows'), { recursive: true });
       writeFileSync(join(mirrorPath, '.github', 'workflows', 'old.yml'), 'old\n', 'utf8');
       runGit(mirrorPath, ['add', '.github']);
@@ -295,9 +297,11 @@ describe('applyMirrorSyncTemplate', () => {
         RepoRoot: syncRepoRoot
       });
 
-      expect(runGit(mirrorPath, ['rev-parse', 'sync:.github/mirror-sync.json']).trim()).toBeTruthy();
-      expect(runGit(mirrorPath, ['rev-parse', 'sync:.github/workflows/mirror-sync.yml']).trim()).toBeTruthy();
-      expect(runGit(mirrorPath, ['rev-parse', 'sync^']).trim()).toBe(masterRoot);
+      expect(runGit(mirrorPath, ['rev-parse', `${MIRROR_SYNC_BRANCH}:.github/mirror-sync.json`]).trim()).toBeTruthy();
+      expect(
+        runGit(mirrorPath, ['rev-parse', `${MIRROR_SYNC_BRANCH}:.github/workflows/mirror-sync.yml`]).trim()
+      ).toBeTruthy();
+      expect(runGit(mirrorPath, ['rev-parse', `${MIRROR_SYNC_BRANCH}^`]).trim()).toBe(masterRoot);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -324,7 +328,7 @@ describe('applyMirrorSyncTemplate', () => {
       const masterRoot = runGit(mirrorPath, ['rev-parse', 'HEAD']).trim();
       runGit(mirrorPath, ['update-ref', 'refs/remotes/origin/master', masterRoot]);
 
-      runGit(mirrorPath, ['checkout', '--orphan', 'sync']);
+      runGit(mirrorPath, ['checkout', '--orphan', MIRROR_SYNC_BRANCH]);
       mkdirSync(join(mirrorPath, '.github', 'workflows'), { recursive: true });
       writeFileSync(join(mirrorPath, '.github', 'workflows', 'old.yml'), 'old\n', 'utf8');
       runGit(mirrorPath, ['add', '.github']);
@@ -337,7 +341,7 @@ describe('applyMirrorSyncTemplate', () => {
         Logger: noopLogger,
         RepoRoot: syncRepoRoot
       });
-      const syncSha = runGit(mirrorPath, ['rev-parse', 'sync']).trim();
+      const syncSha = runGit(mirrorPath, ['rev-parse', MIRROR_SYNC_BRANCH]).trim();
 
       const skipped = applyMirrorSyncTemplate({
         MirrorPath: mirrorPath,
@@ -347,7 +351,7 @@ describe('applyMirrorSyncTemplate', () => {
         RepoRoot: syncRepoRoot
       });
       expect(skipped).toBe(false);
-      expect(runGit(mirrorPath, ['rev-parse', 'sync']).trim()).toBe(syncSha);
+      expect(runGit(mirrorPath, ['rev-parse', MIRROR_SYNC_BRANCH]).trim()).toBe(syncSha);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -388,7 +392,7 @@ describe('bootstrapMirrorFromUpstreamRoot', () => {
       });
 
       expect(runGit(mirrorPath, ['rev-parse', 'master']).trim()).toBe(rootSha);
-      expect(runGit(mirrorPath, ['rev-parse', 'sync']).trim()).toBe(rootSha);
+      expect(runGit(mirrorPath, ['rev-parse', MIRROR_SYNC_BRANCH]).trim()).toBe(rootSha);
       expect(runGit(mirrorPath, ['rev-parse', 'refs/remotes/origin/master']).trim()).toBe(rootSha);
       expect(runGit(mirrorPath, ['rev-list', '--count', 'master']).trim()).toBe('1');
     } finally {

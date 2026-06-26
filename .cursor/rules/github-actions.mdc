@@ -27,7 +27,7 @@ Dry-run manifest verification: run locally (`yarn sync --dry-run --skip-fetch`);
 | `msys2-apiss/mingw-w64` | [SourceForge mingw-w64](https://git.code.sf.net/p/mingw-w64/mingw-w64) | no (mirror-only) |
 | `msys2-apiss/glibc` | [sourceware glibc](https://sourceware.org/git/glibc.git) | no (mirror-only) |
 
-Branch layout: **`sync`** holds workflow and config; **`master`** is a pure
+Branch layout: **`msys2-apiss-sync`** holds workflow and config; **`master`** is a pure
 fast-forward copy of upstream (no workflow commits on master).
 
 Template: `config/mirror-template/mirror-sync.yml`. Per-repo JSON:

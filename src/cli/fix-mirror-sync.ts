@@ -49,7 +49,7 @@ function logMirrorTips(
     : getMirrorTipSha(mirrorPath, MIRROR_SYNC_BRANCH);
   const tip = getMirrorTipSha(mirrorPath, contentBranch);
   logger.write(
-    `${repoName}: ${mirrorPath} (sync = ${syncTip.slice(0, 8)}, ${contentBranch} = ${tip.slice(0, 8)})`
+    `${repoName}: ${mirrorPath} (${MIRROR_SYNC_BRANCH} = ${syncTip.slice(0, 8)}, ${contentBranch} = ${tip.slice(0, 8)})`
   );
 }
 

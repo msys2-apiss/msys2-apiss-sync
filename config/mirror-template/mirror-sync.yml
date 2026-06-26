@@ -1,8 +1,8 @@
 name: Mirror sync from upstream
 
-# Install on a mirror repo branch sync (set sync as default branch).
-# Copy this file to: sync/.github/workflows/mirror-sync.yml
-# Copy a per-repo config to: sync/.github/mirror-sync.json
+# Install on mirror repo branch msys2-apiss-sync (workflows live here, not on master).
+# Copy this file to: msys2-apiss-sync/.github/workflows/mirror-sync.yml
+# Copy a per-repo config to: msys2-apiss-sync/.github/mirror-sync.json
 #   (from config/mirror-sync/<repo-name>.json in msys2-apiss-sync; applied by yarn fetch-mirrors)
 #
 # master (or configured mirror branches) holds upstream history only;
@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
-      - name: Checkout sync branch
+      - name: Checkout msys2-apiss-sync branch
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
@@ -34,7 +34,7 @@ jobs:
           set -euo pipefail
           CONFIG=".github/mirror-sync.json"
           if [ ! -f "${CONFIG}" ]; then
-            echo "Missing ${CONFIG} on sync branch"
+            echo "Missing ${CONFIG} on msys2-apiss-sync branch"
             exit 1
           fi
           PUSH_VIA_SSH="$(jq -r '.PushViaSsh // false' "${CONFIG}")"
@@ -90,7 +90,7 @@ jobs:
 
           CONFIG=".github/mirror-sync.json"
           if [ ! -f "${CONFIG}" ]; then
-            echo "Missing ${CONFIG} on sync branch"
+            echo "Missing ${CONFIG} on msys2-apiss-sync branch"
             exit 1
           fi
 

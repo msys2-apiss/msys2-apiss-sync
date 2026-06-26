@@ -623,7 +623,7 @@ Edit in git only when values change (rare).
 | `Mirrors.*` | Polled mirror repo list (`Repos`), sync interval, dispatch event |
 | `config/mirror-sync/*.json` | Per-mirror upstream URL, branches, notify, description, homepage URL |
 
-Mirror repos use branch **`sync`** (default) for workflow YAML only; **`master`** is a
+Mirror repos use branch **`msys2-apiss-sync`** for workflow YAML only; **`master`** is a
 pure fast-forward copy of upstream `master` with no workflow commits. Templates:
 `config/mirror-template/mirror-sync.yml`.
 | `Replay.*` | Age gate, tree/message rules |
@@ -736,11 +736,11 @@ GitHub Actions requires static cron in YAML; workflow comments reference sync.js
 
 | Branch | Role |
 |--------|------|
-| `sync` (default) | `.github/workflows/mirror-sync.yml`, `.github/mirror-sync.json` |
+| `msys2-apiss-sync` | `.github/workflows/mirror-sync.yml`, `.github/mirror-sync.json` |
 | `master` | Pure upstream mirror; no workflow files |
 
 All mirrors share one workflow template `config/mirror-template/mirror-sync.yml` and a
-per-repo JSON config at `.github/mirror-sync.json` on branch `sync` (canonical
+per-repo JSON config at `.github/mirror-sync.json` on branch `msys2-apiss-sync` (canonical
 templates in `config/mirror-sync/<repo-name>.json`, applied by `yarn fetch-mirrors`).
 Config fields: `UpstreamUrl`,
 `Branches` (upstream/mirror pairs), `SyncTags` (default true), `Notify`

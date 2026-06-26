@@ -73,21 +73,21 @@ SSH is used only for `git push` on repos with `PushViaSsh` true.
 
 ### 1. Refresh mirrors from upstream
 
-Mirrors auto-refresh every ~15 minutes via [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml) on this repo (GitHub per-repo `*/5` cron is unreliable). Mirror-poll skips dispatch when each mirror content branch already matches upstream. Manual trigger on branch `sync` (workflows live there, not on `master`):
+Mirrors auto-refresh every ~15 minutes via [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml) on this repo (GitHub per-repo `*/5` cron is unreliable). Mirror-poll skips dispatch when each mirror content branch already matches upstream. Manual trigger on branch `msys2-apiss-sync` (workflows live there, not on `master`):
 
 ```bash
-gh workflow run mirror-sync.yml --repo msys2-apiss/MSYS2-packages --ref sync
-gh workflow run mirror-sync.yml --repo msys2-apiss/MINGW-packages --ref sync
-gh workflow run mirror-sync.yml --repo msys2-apiss/mingw-w64 --ref sync
-gh workflow run mirror-sync.yml --repo msys2-apiss/glibc --ref sync
-gh workflow run mirror-sync.yml --repo msys2-apiss/enscript --ref sync
-gh workflow run mirror-sync.yml --repo msys2-apiss/gcc --ref sync
+gh workflow run mirror-sync.yml --repo msys2-apiss/MSYS2-packages --ref msys2-apiss-sync
+gh workflow run mirror-sync.yml --repo msys2-apiss/MINGW-packages --ref msys2-apiss-sync
+gh workflow run mirror-sync.yml --repo msys2-apiss/mingw-w64 --ref msys2-apiss-sync
+gh workflow run mirror-sync.yml --repo msys2-apiss/glibc --ref msys2-apiss-sync
+gh workflow run mirror-sync.yml --repo msys2-apiss/enscript --ref msys2-apiss-sync
+gh workflow run mirror-sync.yml --repo msys2-apiss/gcc --ref msys2-apiss-sync
 ```
 
 Each mirror repo uses the same workflow template
 [`config/mirror-template/mirror-sync.yml`](../config/mirror-template/mirror-sync.yml).
 Per-repo settings come from [`config/mirror-sync/`](../config/mirror-sync/) and are
-applied to `.github/mirror-sync.json` on branch `sync` by `yarn fetch-mirrors` when
+applied to `.github/mirror-sync.json` on branch `msys2-apiss-sync` by `yarn fetch-mirrors` when
 templates differ or the branch layout is invalid.
 Package mirrors notify `msys2-apiss-sync` when `Notify.Enabled` is true; mirror-only repos
 (`mingw-w64`, `glibc`) set `Notify.Enabled` to false.
@@ -152,8 +152,8 @@ yarn fetch-mirrors --skip-fetch --push-sync
 yarn mirror-poll
 ```
 
-`--push-sync` runs `git push --force-with-lease origin sync` on each mirror when
-local `sync` differs from `origin/sync`. Requires push access to `msys2-apiss/*`
+`--push-sync` runs `git push --force-with-lease origin msys2-apiss-sync` on each mirror when
+local `msys2-apiss-sync` differs from `origin/msys2-apiss-sync`. Requires push access to `msys2-apiss/*`
 mirror repos.
 
 `yarn mirror-poll` and `yarn fetch-mirrors --push-sync` dispatch `mirror-sync` and

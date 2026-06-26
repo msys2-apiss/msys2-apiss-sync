@@ -4,7 +4,7 @@ Checklist for adding a new `msys2-apiss/*` mirror repo. Use this doc when asked 
 add a mirror; do not invent a GitHub Actions bootstrap workflow in this repo.
 
 Local clones are **working copies** under `.work/mirrors/<repo>/`, checked out on
-branch **`sync`**, so you can edit the mirror-sync workflow and squash before push.
+branch **`msys2-apiss-sync`**, so you can edit the mirror-sync workflow and squash before push.
 
 Design: [`PLAN.md`](PLAN.md). Mirror templates: [`config/mirror-template/`](../config/mirror-template/).
 Ops: [`usage.md`](usage.md).
@@ -15,24 +15,24 @@ Every mirror repo uses two branches:
 
 | Branch | Role |
 |--------|------|
-| `sync` (default on GitHub) | Local working copy branch; **exactly one commit** with `.github/workflows/mirror-sync.yml` and `.github/mirror-sync.json` only |
+| `msys2-apiss-sync` | Local working copy branch; **exactly one commit** with `.github/workflows/mirror-sync.yml` and `.github/mirror-sync.json` only |
 | `master` (or first `Branches[].Mirror` in config) | Pure upstream mirror; no workflow files |
 
-The `sync` branch tip must be a **single commit** whose **parent is the first
+The `msys2-apiss-sync` branch tip must be a **single commit** whose **parent is the first
 commit** of the first synced mirror branch (usually `origin/master` root):
 
 ```text
 A = first commit of master
-A <- S = sync tip (workflow/config only)
+A <- S = msys2-apiss-sync tip (workflow/config only)
 A <- ... <- master tip
 ```
 
-`yarn fetch-mirrors` always checks out `sync` and warns if the layout differs.
-Rebuild `sync` locally:
+`yarn fetch-mirrors` always checks out `msys2-apiss-sync` and warns if the layout differs.
+Rebuild `msys2-apiss-sync` locally:
 
 ```bash
 ROOT=$(git -C .work/mirrors/my-tool rev-list --max-parents=0 origin/master)
-git -C .work/mirrors/my-tool checkout -B sync "$ROOT"
+git -C .work/mirrors/my-tool checkout -B msys2-apiss-sync "$ROOT"
 # applied by yarn fetch-mirrors from config/mirror-sync/*.json and
 # config/mirror-template/mirror-sync.yml
 git -C .work/mirrors/my-tool add .github
@@ -40,19 +40,19 @@ git -C .work/mirrors/my-tool commit \
   -m "Mirror sync workflow from msys2-apiss-sync" \
   -m "https://github.com/msys2-apiss/msys2-apiss-sync/tree/main/config/mirror-sync
 https://github.com/msys2-apiss/msys2-apiss-sync/blob/main/config/mirror-template/mirror-sync.yml"
-git -C .work/mirrors/my-tool push --force-with-lease origin sync
+git -C .work/mirrors/my-tool push --force-with-lease origin msys2-apiss-sync
 ```
 
 Replay and mirror tips still read **`origin/master`** (or the configured mirror
-branch); local edits on `sync` do not affect replay until pushed.
+branch); local edits on `msys2-apiss-sync` do not affect replay until pushed.
 
-### Auto-repair `sync` layout
+### Auto-repair `msys2-apiss-sync` layout
 
-`yarn fetch-mirrors` repairs invalid `sync` branches (single commit on the mirror-branch
+`yarn fetch-mirrors` repairs invalid `msys2-apiss-sync` branches (single commit on the mirror-branch
 root) and applies `config/mirror-sync/` templates only when they differ from the
 mirror working copy.
 
-After editing `.github/` locally on `sync`:
+After editing `.github/` locally on `msys2-apiss-sync`:
 
 ```bash
 yarn fix-mirror-sync --skip-fetch --repo glibc
@@ -62,9 +62,9 @@ yarn fix-mirror-sync --skip-fetch --repo glibc --push
 | Flag | Purpose |
 |------|---------|
 | `--repo <name>` | One mirror (default: all in `config/sync.json`) |
-| `--skip-fetch` | Keep local `.github/` edits; do not reset to `origin/sync` |
-| `--push` | Push repaired `sync` to GitHub (`--force-with-lease`) |
-| `--force` | Re-squash `sync` even when layout is already valid |
+| `--skip-fetch` | Keep local `.github/` edits; do not reset to `origin/msys2-apiss-sync` |
+| `--push` | Push repaired `msys2-apiss-sync` to GitHub (`--force-with-lease`) |
+| `--force` | Re-squash `msys2-apiss-sync` even when layout is already valid |
 | `--message <text>` | Commit message (default: subject + links to [config/mirror-sync](https://github.com/msys2-apiss/msys2-apiss-sync/tree/main/config/mirror-sync) and [mirror-sync.yml](https://github.com/msys2-apiss/msys2-apiss-sync/blob/main/config/mirror-template/mirror-sync.yml)) |
 
 ## Local mirror path
@@ -86,14 +86,14 @@ Examples:
 
 Per-mirror JSON configs live in **`config/mirror-sync/<repo-name>.json`** (canonical
 source). `yarn fetch-mirrors` copies templates to `.work/mirrors/<repo>/.github/`
-on branch **`sync`** only when files differ or the branch layout is invalid.
+on branch **`msys2-apiss-sync`** only when files differ or the branch layout is invalid.
 
 Example: `config/mirror-sync/MINGW-packages.json` for `msys2-apiss/MINGW-packages`.
 
 ```bash
 yarn fetch-mirrors
 yarn fetch-mirrors --skip-fetch   # re-apply when config/mirror-sync/*.json changed
-yarn fetch-mirrors --skip-fetch --push-sync   # apply and push sync when local differs from origin
+yarn fetch-mirrors --skip-fetch --push-sync   # apply and push msys2-apiss-sync when local differs from origin
 ```
 
 ## Mirror-only vs package mirror
@@ -145,19 +145,19 @@ lives in `config/mirror-sync/<repo-name>.json` only.
 ### 2. Bootstrap on GitHub
 
 Run (creates the GitHub repo with `gh` when missing, pushes content root +
-`sync`, registers workflow, runs first sync, restores default branch):
+`msys2-apiss-sync`, registers workflow, runs first sync, restores default branch):
 
 ```bash
 yarn fetch-mirrors --repo my-tool --push-sync
 ```
 
 This fetches upstream commit graph blob:none, checks out the root commit only
-locally, pushes that as `master`/`main`, pushes `sync`, triggers `mirror-sync`
+locally, pushes that as `master`/`main`, pushes `msys2-apiss-sync`, triggers `mirror-sync`
 on GitHub (full upstream fetch happens in CI), then sets default back to the
 content branch without waiting for the run to finish.
 
 Later, `yarn fetch-mirrors` clones into `.work/mirrors/my-tool/` on branch
-**`sync`** and applies `config/mirror-sync/my-tool.json` when templates differ.
+**`msys2-apiss-sync`** and applies `config/mirror-sync/my-tool.json` when templates differ.
 
 Re-push workflow templates after config edits:
 
@@ -165,19 +165,18 @@ Re-push workflow templates after config edits:
 yarn fetch-mirrors --skip-fetch --push-sync
 ```
 
-On first bootstrap, `--push-sync` temporarily sets default branch to `sync` so
+On first bootstrap, `--push-sync` temporarily sets default branch to `msys2-apiss-sync` so
 GitHub registers `mirror-sync.yml`, triggers mirror-sync, then immediately sets
 default back to the content branch (`master` or configured mirror branch). It
 does not wait for the run to finish. Later `--push-sync` and `mirror-poll`
-dispatch on ref `sync` when the repo already has Actions and default branch is
-the content branch.
+dispatch on ref `msys2-apiss-sync` when the workflow file is on that branch.
 
 Or manually:
 
 ```bash
-# after pushing content root + sync locally
-gh api repos/msys2-apiss/my-tool -X PATCH -f default_branch=sync
-gh workflow run mirror-sync.yml --repo msys2-apiss/my-tool --ref sync
+# after pushing content root + msys2-apiss-sync locally
+gh api repos/msys2-apiss/my-tool -X PATCH -f default_branch=msys2-apiss-sync
+gh workflow run mirror-sync.yml --repo msys2-apiss/my-tool --ref msys2-apiss-sync
 gh run watch --repo msys2-apiss/my-tool $(gh run list --repo msys2-apiss/my-tool --workflow mirror-sync.yml --limit 1 --json databaseId -q '.[0].databaseId')
 gh api repos/msys2-apiss/my-tool -X PATCH -f default_branch=master
 ```
@@ -201,7 +200,7 @@ msys2-apiss-sync, re-run `yarn fetch-mirrors --skip-fetch --push-sync`.
 
 ### 3. Local squash / workflow edits
 
-Work in `.work/mirrors/my-tool/` (already on **`sync`** after `yarn fetch-mirrors`):
+Work in `.work/mirrors/my-tool/` (already on **`msys2-apiss-sync`** after `yarn fetch-mirrors`):
 
 ```bash
 # edit .github/workflows/mirror-sync.yml or .github/mirror-sync.json
@@ -234,7 +233,7 @@ yarn test tests/sync/config.test.ts
 Expect log lines like:
 
 ```text
-[sync] mingw-w64 mirror: .work/mirrors/mingw-w64 (sync = abc12345, master = def67890)
+[sync] mingw-w64 mirror: .work/mirrors/mingw-w64 (msys2-apiss-sync = abc12345, master = def67890)
 ```
 
 Check remote tip:
@@ -248,4 +247,4 @@ git -C .work/mirrors/my-tool rev-parse origin/master
 - [`apply-patches-usage.md`](apply-patches-usage.md) -- apply mapped commits from
   package mirrors into a destination branch
 - [`config/mirror-template/mirror-sync.yml`](../config/mirror-template/mirror-sync.yml) -- shared
-  workflow installed on each mirror `sync` branch
+  workflow installed on each mirror `msys2-apiss-sync` branch

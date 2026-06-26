@@ -14,7 +14,7 @@ import {
   setGhRepoDefaultBranch
 } from './gh-cli.ts';
 import type { SyncLogger } from './log.ts';
-import { getMirrorSyncConfigPath } from './repos.ts';
+import { getMirrorSyncConfigPath, MIRROR_SYNC_BRANCH } from './repos.ts';
 
 export interface MirrorPollGitHub {
   getBranchSha(repo: string, branch: string): Promise<string | null>;
@@ -225,17 +225,17 @@ async function ensureMirrorSyncWorkflowRegistered(input: {
     return;
   }
   input.Logger.write(
-    `${input.RepoName}: registering mirror-sync (temporary default branch sync)`
+    `${input.RepoName}: registering mirror-sync (temporary default branch ${MIRROR_SYNC_BRANCH})`
   );
   const currentDefault = getGhRepoDefaultBranch(input.Owner, input.RepoName);
-  if (currentDefault !== 'sync') {
-    setGhRepoDefaultBranch(input.Owner, input.RepoName, 'sync', input.Logger);
+  if (currentDefault !== MIRROR_SYNC_BRANCH) {
+    setGhRepoDefaultBranch(input.Owner, input.RepoName, MIRROR_SYNC_BRANCH, input.Logger);
   }
   const ready = await waitForMirrorSyncWorkflowRegistered(input);
   if (!ready) {
     throw new Error(
       `${input.Owner}/${input.RepoName}: mirror-sync workflow did not register after ` +
-        'setting default branch to sync'
+        `setting default branch to ${MIRROR_SYNC_BRANCH}`
     );
   }
 }
@@ -246,7 +246,7 @@ async function restoreMirrorContentDefaultBranch(input: {
   ContentBranch: string;
   Logger: SyncLogger;
 }): Promise<void> {
-  if (input.ContentBranch === 'sync' || !ghCommandAvailable()) {
+  if (input.ContentBranch === MIRROR_SYNC_BRANCH || !ghCommandAvailable()) {
     return;
   }
   const currentDefault = getGhRepoDefaultBranch(input.Owner, input.RepoName);
@@ -267,9 +267,6 @@ async function runMirrorSyncDispatch(input: {
   ContentBranch: string;
   Logger: SyncLogger;
 }): Promise<void> {
-  if (!ghCommandAvailable()) {
-    return;
-  }
   if (await mirrorRepoReadyForNormalSync(input.Owner, input.RepoName)) {
     input.Logger.write(`${input.RepoName}: mirror ready; triggering mirror-sync`);
     await dispatchMirrorSyncWorkflow({
@@ -295,13 +292,14 @@ async function runMirrorSyncDispatch(input: {
   }
 }
 
-/** After push to sync: bootstrap when needed, dispatch mirror-sync, restore default (gh). */
+/** After push to msys2-apiss-sync: bootstrap, dispatch mirror-sync, restore default (gh). */
 export async function startMirrorSyncAfterPush(input: {
   Owner: string;
   RepoName: string;
   ContentBranch: string;
   Logger: SyncLogger;
 }): Promise<void> {
+  requireGhCommand();
   await runMirrorSyncDispatch(input);
   await restoreMirrorContentDefaultBranch(input);
 }
