@@ -59,7 +59,7 @@ On **`msys2-apiss/msys2-apiss-sync`** (tooling repo):
 
 Block 1 copies [`mirror-merge.yml`](../config/mirror-template/mirror-merge.yml) from template
 onto branch `msys2-apiss-mirror-merge` and pushes to origin (same install pattern as Block 3
-on mirror repos). Block 3 package mirrors dispatch this workflow via `repository_dispatch`.
+on mirror repos). Block 3 package mirrors dispatch this workflow via `workflow_dispatch_mirror_merge`.
 
 ---
 
@@ -116,7 +116,7 @@ Block 1 installs the workflow from the tooling template; Block 2 triggers it.
 Canonical template: [`mirror-sync.yml`](../config/mirror-template/mirror-sync.yml) in
 **tooling repo**. Deployed copy on each mirror repo, mirror branch `msys2-apiss-mirror-sync`.
 Only Block 3 runs these sync steps. Block 2 poll triggers Block 3 via
-`workflow_dispatch` on **that mirror repo** when tips differ.
+`workflow_dispatch_mirror_sync` on **that mirror repo** when tips differ.
 Block 1 never runs mirror-sync; it copies templates. Block 2 poll (not plain
 `mirror-init`) triggers Block 3.
 
@@ -205,7 +205,7 @@ on **`msys2-apiss/msys2-apiss-sync`**.
 
 | Item | Value |
 |------|--------|
-| Triggers | **`yarn mirror-poll`**; CI cron / `workflow_dispatch` on [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml); **`yarn mirror-init --push`** (after push, respects `--repo`) |
+| Triggers | **`yarn mirror-poll`**; CI cron / `workflow_dispatch_mirror_sync` on [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml); **`yarn mirror-init --push`** (after push, respects `--repo`) |
 | Runs | `node src/cli/mirror-poll.ts` (sparse checkout `config/` + `src/`) |
 | Code | `src/cli/mirror-poll.ts`, `src/lib/mirror-poll.ts` |
 
@@ -289,7 +289,7 @@ All commands below run from a **local checkout** of `msys2-apiss/msys2-apiss-syn
 | Init only (Block 1) | `yarn mirror-init [--repo <name>]` |
 | Poll only (Block 2) | `yarn mirror-poll` |
 | Scheduled poll (CI, no local machine) | `mirror-poll.yml` on GitHub |
-| Mirror-merge CI (Block 4) | `repository_dispatch` from Block 3 or `gh workflow run mirror-merge.yml --repo msys2-apiss/msys2-apiss-sync --ref msys2-apiss-mirror-merge` |
+| Mirror-merge CI (Block 4) | `workflow_dispatch_mirror_merge` from Block 3 or `gh workflow run mirror-merge.yml --repo msys2-apiss/msys2-apiss-sync --ref msys2-apiss-mirror-merge` |
 | Mirror-merge local (Block 4) | `yarn sync [--skip-fetch]` |
 | Fix config branch layout | `yarn fix-mirror-sync [--skip-fetch] [--push]` |
 | Block 3 direct (bypass poll) | `gh workflow run mirror-sync.yml --repo msys2-apiss/<name> --ref msys2-apiss-mirror-sync` |

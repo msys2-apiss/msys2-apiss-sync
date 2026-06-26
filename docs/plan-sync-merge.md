@@ -27,7 +27,7 @@ repo/block/CI changes.
 | [`mirror-merge.yml`](../config/mirror-template/mirror-merge.yml) on tooling branch **`msys2-apiss-mirror-merge`** (Block 4 CI; installed by Block 1) | Block 2 poll; Block 3 mirror-sync |
 | Destination branches on `msys2-apiss/msys2-apiss` | Workflows on destination repo |
 | Retrieve, merge-queue, replay | Workflows on mirror content branches |
-| Trigger from Block 3 `repository_dispatch` (package mirrors) | |
+| Trigger from Block 3 `workflow_dispatch_mirror_merge` (package mirrors) | |
 
 ---
 
@@ -39,7 +39,7 @@ repo/block/CI changes.
   - **Local:** `yarn sync` from tooling checkout
   - **CI:** [`mirror-merge.yml`](../config/mirror-template/mirror-merge.yml) on tooling repo
     branch **`msys2-apiss-mirror-merge`** (installed by Block 1); triggered by Block 3
-    `repository_dispatch`, cron, or manual dispatch
+    `workflow_dispatch_mirror_merge`, cron, or manual dispatch
 - **Block 3 handoff:** package mirrors dispatch tooling repo after mirror `master` advances
 
 ---

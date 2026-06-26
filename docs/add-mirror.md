@@ -220,7 +220,7 @@ path is still `.work/mirrors/<repo>/`.
 
 Use `Notify.Enabled: true` in `config/mirror-sync/<repo>.json` and set
 `SYNC_DISPATCH_TOKEN` on the mirror repo with `gh secret set`. That secret is
-used for `repository_dispatch` to `msys2-apiss-sync` after mirror-sync advances
+used for `workflow_dispatch_mirror_merge` to `msys2-apiss-sync` after mirror-sync advances
 content.
 
 ## Verify
