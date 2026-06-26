@@ -63,7 +63,7 @@ async function main(): Promise<void> {
   try {
     const work = getWorkDirectory(repoRoot);
     const skipFetch = readFlag(args, '--skip-fetch');
-    const pushSync = readFlag(args, '--push-sync');
+    const pushSync = readFlag(args, '--push');
     const repoFilter = readStringOption(args, '--repo');
     logger.write('Fetching mirrors');
 

@@ -1,8 +1,33 @@
-# MSYS2-APISS upstream sync plan
+# MSYS2-APISS sync plans (index)
+
+**Center design:** [`plan-workflow.md`](plan-workflow.md) (target workflow by block). Edit
+that file first for repo/block/CI changes.
+
+This repo implements two pipelines. Each has its own plan document:
+
+| Plan | Target | Entry commands |
+|------|--------|----------------|
+| [**Workflow (center)**](plan-workflow.md) | Blocks 0-4, repos, CI boundaries | See operator flows table |
+| [**Mirror-merge**](plan-sync-merge.md) | [msys2-apiss/msys2-apiss](https://github.com/msys2-apiss/msys2-apiss) destination | `yarn sync` (Block 4 local); `mirror-merge.yml` CI on `msys2-apiss-mirror-merge` |
+| [**Mirror-init / mirror-poll**](plan-mirror-init.md) | Mirror repos + tooling workflow branches | Block 1: `yarn mirror-init`; Block 2: `mirror-poll.yml`; Block 3: mirror `mirror-sync.yml` |
+
+End-to-end flow: Block 0 (config URL) -> **Block 1** init -> **Block 2** poll (via
+`yarn mirror-poll`, cron, or **`yarn mirror-init --push`**) ->
+**Block 3** mirror-sync -> **Block 4** mirror-merge (replay + push to `msys2-apiss/msys2-apiss`
+`upstream*`).
+
+The sections below are the **shared foundation** (runtime, replay algorithm, phases 1a-1d).
+For block map and operator commands, prefer [`plan-workflow.md`](plan-workflow.md).
+
+---
+
+# Sync-merge (summary)
 
 Sync upstream package history from [msys2/MINGW-packages](https://github.com/msys2/MINGW-packages)
 and [msys2/MSYS2-packages](https://github.com/msys2/MSYS2-packages) into
 [msys2-apiss/msys2-apiss](https://github.com/msys2-apiss/msys2-apiss).
+
+Full mirror-merge plan: [`plan-sync-merge.md`](plan-sync-merge.md).
 
 ## Key design change
 
@@ -161,9 +186,12 @@ flowchart TD
 
 Dev helper CLIs (same runtime, optional for local debugging):
 
-- `src/cli/fetch-mirrors.ts`
+- `src/cli/mirror-init.ts` (`yarn mirror-init`; alias `fetch-mirrors` until renamed)
+- `src/cli/mirror-poll.ts`
 - `src/cli/retrieve-history.ts`
 - `src/cli/merge-queue.ts`
+
+Mirror tooling plan: [`plan-mirror-init.md`](plan-mirror-init.md).
 
 ---
 
@@ -177,7 +205,8 @@ Single entry `src/cli/sync-upstream.ts` imports lib modules; no other top-level 
 src/
   cli/
     sync-upstream.ts      # orchestration: retrieve -> sort -> replay -> push
-    fetch-mirrors.ts
+    mirror-init.ts        # clone/init .work/mirrors (alias fetch-mirrors.ts)
+    mirror-poll.ts
     retrieve-history.ts
     merge-queue.ts
   lib/
@@ -623,9 +652,9 @@ Edit in git only when values change (rare).
 | `Mirrors.*` | Polled mirror repo list (`Repos`), sync interval, dispatch event |
 | `config/mirror-sync/*.json` | Per-mirror upstream URL, branches, notify, description, homepage URL |
 
-Mirror repos use branch **`msys2-apiss-sync`** for workflow YAML only; **`master`** is a
-pure fast-forward copy of upstream `master` with no workflow commits. Templates:
-`config/mirror-template/mirror-sync.yml`.
+Mirror repos use branch **`msys2-apiss-mirror-sync`** for optional `.github/mirror-sync.json`
+and workflow YAML only; **`master`** is a pure fast-forward copy of upstream with no workflow files.
+Mirror refresh is local only; see [`plan-mirror-init.md`](plan-mirror-init.md).
 | `Replay.*` | Age gate, tree/message rules |
 | `PollIntervalMinutes` | Hourly tolerance poll (60 -> cron `0 * * * *`) |
 | `DailyReconciliationCron` | Daily gap-check schedule |
@@ -706,66 +735,18 @@ Verify against legacy PowerShell on `--dry-run --max-commits 100` (same skip/rep
 
 - Remove `scripts/*.ps1`, `scripts/lib/*.ps1`, `tests/*.Tests.ps1`, `config/config.psd1`
 - Update [`usage.md`](usage.md) and [`run-local.md`](run-local.md)
-- Consolidate CI to single [`sync-upstream.yml`](../.github/workflows/sync-upstream.yml) calling TS CLI
+- Consolidate CI to single [`mirror-merge.yml`](../config/mirror-template/mirror-merge.yml) on branch `msys2-apiss-mirror-merge` calling TS CLI
 - Update [`AGENTS.md`](../AGENTS.md) and cursor rules (replace `powershell-scripts.mdc` with TypeScript rules)
 
 ---
 
 ## Phase 2 -- GitHub Actions
 
-CI reads timing and repo constants from [`config/sync.json`](../config/sync.json) (Phase 1a); workflow YAML does not duplicate them as the source of truth.
+Split across two plans (do not duplicate here):
 
-### Poll and reconciliation schedules
-
-| sync.json key | Value | Workflow mapping |
-|---------------|-------|------------------|
-| `Mirrors.SyncIntervalMinutes` | `15` | [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml) cron: `7,22,37,52 * * * *` |
-| `PollIntervalMinutes` | `60` | Tolerance poll cron: `0 * * * *` |
-| `DailyReconciliationCron` | `'0 3 * * *'` | Daily reconciliation cron (same string in YAML) |
-
-GitHub Actions requires static cron in YAML; workflow comments reference sync.json as source of truth. Preflight step logs both values via `loadSyncConfig`. Do not put cron on mirror repos; GitHub `*/5` schedules are often skipped. [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml) runs [`src/lib/mirror-poll.ts`](../src/lib/mirror-poll.ts) to dispatch `mirror-sync` only when a mirror content branch HEAD differs from upstream.
-
-### Mirror repos
-
-| Mirror | Upstream | Replay into msys2-apiss |
-|--------|----------|-------------------------|
-| `msys2-apiss/MSYS2-packages` | `msys2/MSYS2-packages` | yes (`ports/`) |
-| `msys2-apiss/MINGW-packages` | `msys2/MINGW-packages` | yes (`ports-mingw/`) |
-| `msys2-apiss/mingw-w64` | [SourceForge mingw-w64](https://git.code.sf.net/p/mingw-w64/mingw-w64) | no (mirror-only) |
-| `msys2-apiss/glibc` | [sourceware glibc](https://sourceware.org/git/glibc.git) | no (mirror-only) |
-
-| Branch | Role |
-|--------|------|
-| `msys2-apiss-sync` | `.github/workflows/mirror-sync.yml`, `.github/mirror-sync.json` |
-| `master` | Pure upstream mirror; no workflow files |
-
-All mirrors share one workflow template `config/mirror-template/mirror-sync.yml` and a
-per-repo JSON config at `.github/mirror-sync.json` on branch `msys2-apiss-sync` (canonical
-templates in `config/mirror-sync/<repo-name>.json`, applied by `yarn fetch-mirrors`).
-Config fields: `UpstreamUrl`,
-`Branches` (upstream/mirror pairs), `SyncTags` (default true), `Notify`
-(`Enabled`, `Repository`, `EventType`). Package mirrors enable `Notify` to
-dispatch `msys2-apiss-sync`; mirror-only repos disable it.
-
-Triggered by [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml), manual
-`workflow_dispatch`, or [`usage.md`](usage.md).
-
-### [`sync-upstream.yml`](../.github/workflows/sync-upstream.yml) changes
-
-| Item | Change |
-|------|--------|
-| Runtime | `actions/setup-node` (Node 26+), `yarn install --frozen-lockfile` |
-| Sync script | `yarn sync` or `node src/cli/sync-upstream.ts` |
-| Triggers | `push` to `main`, `repository_dispatch`, schedule, `workflow_dispatch` with optional `clean` input |
-| Schedule | `# PollIntervalMinutes=60, DailyReconciliationCron in config/sync.json` |
-| Push | Three destination branches (`upstream`, `upstream-ports`, `upstream-ports-mingw`) |
-| Workflows | `mirror-poll.yml` + `sync-upstream.yml`; manifest verify is local dry-run only |
-
-### Phase 2 done when
-
-- Workflow runs TypeScript sync CLI; preflight logs `PollIntervalMinutes` from config
-- `--clean` available via `workflow_dispatch` input
-- Trigger section documents `PollIntervalMinutes` and `DailyReconciliationCron`
+- **Mirror-merge CI:** [`plan-sync-merge.md`](plan-sync-merge.md) -- `mirror-merge.yml` on `msys2-apiss-mirror-merge`
+- **Mirror refresh:** [`plan-mirror-init.md`](plan-mirror-init.md) -- local `mirror-init` /
+  `mirror-poll`; delete `mirror-poll.yml` and mirror-repo workflows
 
 ---
 
@@ -779,10 +760,10 @@ Triggered by [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml), manual
 - Poll tolerance: `PollIntervalMinutes` in sync.json
 - Runtime: Node.js 26+, TypeScript (native type stripping), vitest
 
-### Phase 2 workflow (see Phase 2 section above)
+### Phase 2 workflow
 
-- [`sync-upstream.yml`](../.github/workflows/sync-upstream.yml): TypeScript sync CLI, preflight logs config poll values, cron comments reference sync.json
-- `workflow_dispatch` input `clean` mapped to `--clean`
+- Mirror-merge: [`plan-sync-merge.md`](plan-sync-merge.md)
+- Mirror-init: [`plan-mirror-init.md`](plan-mirror-init.md)
 
 ---
 
@@ -816,4 +797,5 @@ Triggered by [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml), manual
 4. **1c** Replay commit with optimized git path
 5. **1d** Orchestration; parity check vs legacy PowerShell
 6. **4** Remove PowerShell; docs pass
-7. Phase 2 CI
+7. Phase 2 CI -- see [`plan-sync-merge.md`](plan-sync-merge.md)
+8. Mirror local-only -- see [`plan-mirror-init.md`](plan-mirror-init.md)

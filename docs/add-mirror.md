@@ -93,7 +93,7 @@ Example: `config/mirror-sync/MINGW-packages.json` for `msys2-apiss/MINGW-package
 ```bash
 yarn fetch-mirrors
 yarn fetch-mirrors --skip-fetch   # re-apply when config/mirror-sync/*.json changed
-yarn fetch-mirrors --skip-fetch --push-sync   # apply and push msys2-apiss-sync when local differs from origin
+yarn fetch-mirrors --skip-fetch --push   # apply and push msys2-apiss-sync when local differs from origin
 ```
 
 ## Mirror-only vs package mirror
@@ -148,7 +148,7 @@ Run (creates the GitHub repo with `gh` when missing, pushes content root +
 `msys2-apiss-sync`, registers workflow, runs first sync, restores default branch):
 
 ```bash
-yarn fetch-mirrors --repo my-tool --push-sync
+yarn fetch-mirrors --repo my-tool --push
 ```
 
 This fetches upstream commit graph blob:none, checks out the root commit only
@@ -162,13 +162,13 @@ Later, `yarn fetch-mirrors` clones into `.work/mirrors/my-tool/` on branch
 Re-push workflow templates after config edits:
 
 ```bash
-yarn fetch-mirrors --skip-fetch --push-sync
+yarn fetch-mirrors --skip-fetch --push
 ```
 
-On first bootstrap, `--push-sync` temporarily sets default branch to `msys2-apiss-sync` so
+On first bootstrap, `--push` temporarily sets default branch to `msys2-apiss-sync` so
 GitHub registers `mirror-sync.yml`, triggers mirror-sync, then immediately sets
 default back to the content branch (`master` or configured mirror branch). It
-does not wait for the run to finish. Later `--push-sync` and `mirror-poll`
+does not wait for the run to finish. Later `--push` and `mirror-poll`
 dispatch on ref `msys2-apiss-sync` when the workflow file is on that branch.
 
 Or manually:
@@ -193,7 +193,7 @@ yarn fix-mirror-sync --skip-fetch --repo my-tool --push
 ```
 
 Remove manual copy steps for templates; edit `config/mirror-sync/*.json` in
-msys2-apiss-sync, re-run `yarn fetch-mirrors --skip-fetch --push-sync`.
+msys2-apiss-sync, re-run `yarn fetch-mirrors --skip-fetch --push`.
 
 `mirror-poll.yml` on `msys2-apiss-sync` picks up any repo listed in
 `Mirrors.Repos`.

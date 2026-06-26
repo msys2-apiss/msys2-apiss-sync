@@ -146,17 +146,17 @@ From the repository root.
 
 ```bash
 yarn fetch-mirrors
-yarn fetch-mirrors --push-sync
+yarn fetch-mirrors --push
 yarn fetch-mirrors --skip-fetch
-yarn fetch-mirrors --skip-fetch --push-sync
+yarn fetch-mirrors --skip-fetch --push
 yarn mirror-poll
 ```
 
-`--push-sync` runs `git push --force-with-lease origin msys2-apiss-sync` on each mirror when
+`--push` runs `git push --force-with-lease origin msys2-apiss-sync` on each mirror when
 local `msys2-apiss-sync` differs from `origin/msys2-apiss-sync`. Requires push access to `msys2-apiss/*`
 mirror repos.
 
-`yarn mirror-poll` and `yarn fetch-mirrors --push-sync` dispatch `mirror-sync` and
+`yarn mirror-poll` and `yarn fetch-mirrors --push` dispatch `mirror-sync` and
 restore the mirror default branch via `gh` (`gh auth login` locally; `GH_TOKEN` in
 CI). No secrets on this repo.
 

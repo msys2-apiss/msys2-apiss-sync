@@ -8,7 +8,7 @@ export interface MirrorSyncConfig {
   Branches: MirrorSyncBranchPair[];
   /** Upstream project home page (not the git clone URL). */
   Url?: string;
-  /** GitHub repo description used by gh repo create on first push-sync. */
+  /** GitHub repo description used by gh repo create on first push. */
   Description?: string;
   /** When true, push to GitHub via SSH; requires MIRROR_PUSH_SSH_KEY (e.g. gcc). Default false (HTTPS). */
   PushViaSsh?: boolean;

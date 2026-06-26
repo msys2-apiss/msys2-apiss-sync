@@ -9,11 +9,13 @@ alwaysApply: true
 
 All architecture, phases, and implementation design live in committed repo files:
 
-- **Primary plan:** [`docs/PLAN.md`](docs/PLAN.md)
+- **Center design:** [`docs/plan-workflow.md`](docs/plan-workflow.md) (target workflow by block; edit first for repo/block/CI changes)
+- **Index:** [`docs/PLAN.md`](docs/PLAN.md) (shared replay foundation + links)
+- **Mirror-merge:** [`docs/plan-sync-merge.md`](docs/plan-sync-merge.md) (`msys2-apiss` destination, Block 4 `yarn sync`)
+- **Mirror-init:** [`docs/plan-mirror-init.md`](docs/plan-mirror-init.md) (mirror repos, Blocks 1-3: `yarn mirror-init`, `mirror-poll.yml`)
 
-Edit `docs/PLAN.md` directly. Do not create parallel plan files (e.g.
-`PLAN-implementation.md`, `PLAN-draft.md`) unless the user explicitly asks for
-a temporary split.
+Edit the plan file that matches the area you are changing. Do not create other
+parallel plan files unless the user explicitly asks.
 
 ## Do not use Cursor internal plans
 
@@ -28,12 +30,14 @@ confusion when they diverged from `docs/PLAN.md`.
 
 ## When design changes
 
-1. Update [`docs/PLAN.md`](docs/PLAN.md) in this repository
+1. Update [`docs/plan-workflow.md`](docs/plan-workflow.md) when blocks, repos, CI, or operator flows change
+2. Update the area plan (`plan-sync-merge.md`, `plan-mirror-init.md`) or [`PLAN.md`](docs/PLAN.md) when algorithm or module detail changes
 2. Commit plan changes when the user asks (or as part of an agreed docs pass)
-3. Reference `docs/PLAN.md` in code, rules, and PRs -- not Cursor plan URLs
+3. Reference these paths in code, rules, and PRs -- not Cursor plan URLs
 
 ## Agent behavior
 
-- Read design from `docs/PLAN.md`, not from conversation-only or Cursor-internal state
-- If the user iterates on design, edit `docs/PLAN.md` (plan iteration), not a shadow file
-- If `docs/PLAN.md` and chat history disagree, the committed file wins unless the user is actively revising it
+- Read design from committed plan docs, not from conversation-only or Cursor-internal state
+- Read block/repo/CI design from [`plan-workflow.md`](docs/plan-workflow.md) first
+- Mirror-merge algorithm -> `plan-sync-merge.md` / `PLAN.md`; mirror Blocks 1-3 detail -> `plan-mirror-init.md`
+- If committed plans and chat history disagree, the committed files win unless the user is actively revising them
