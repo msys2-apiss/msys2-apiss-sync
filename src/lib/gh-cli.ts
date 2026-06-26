@@ -19,8 +19,136 @@ export function ghCommandAvailable(): boolean {
   return runGh(['--version']).ok;
 }
 
+export function requireGhCommand(): void {
+  if (!ghCommandAvailable()) {
+    throw new Error('gh CLI is required (install gh and run gh auth login)');
+  }
+}
+
+export function ghGetBranchSha(owner: string, repoName: string, branch: string): string | null {
+  if (!ghCommandAvailable()) {
+    return null;
+  }
+  const result = runGh([
+    'api',
+    `repos/${owner}/${repoName}/branches/${encodeURIComponent(branch)}`,
+    '--jq',
+    '.commit.sha'
+  ]);
+  if (!result.ok) {
+    return null;
+  }
+  return result.stdout || null;
+}
+
 export function ghRepoExists(owner: string, repoName: string): boolean {
   return runGh(['repo', 'view', `${owner}/${repoName}`]).ok;
+}
+
+export function getGhRepoDefaultBranch(owner: string, repoName: string): string | null {
+  if (!ghCommandAvailable()) {
+    return null;
+  }
+  const result = runGh(['api', `repos/${owner}/${repoName}`, '--jq', '.default_branch']);
+  return result.ok && result.stdout ? result.stdout : null;
+}
+
+export function setGhRepoDefaultBranch(
+  owner: string,
+  repoName: string,
+  branch: string,
+  logger: SyncLogger
+): boolean {
+  if (!ghCommandAvailable()) {
+    return false;
+  }
+  const result = runGh([
+    'api',
+    `repos/${owner}/${repoName}`,
+    '-X',
+    'PATCH',
+    '-f',
+    `default_branch=${branch}`
+  ]);
+  if (result.ok) {
+    logger.write(`Set ${repoName} default branch to ${branch}`);
+    return true;
+  }
+  return false;
+}
+
+export function ghMirrorSyncWorkflowRegistered(owner: string, repoName: string): boolean | null {
+  if (!ghCommandAvailable()) {
+    return null;
+  }
+  const result = runGh([
+    'api',
+    `repos/${owner}/${repoName}/actions/workflows`,
+    '--jq',
+    '[.workflows[].path] | index(".github/workflows/mirror-sync.yml") != null'
+  ]);
+  if (!result.ok) {
+    return null;
+  }
+  return result.stdout === 'true';
+}
+
+export function ghMirrorSyncRunInProgress(owner: string, repoName: string): boolean | null {
+  if (!ghCommandAvailable()) {
+    return null;
+  }
+  const result = runGh([
+    'run',
+    'list',
+    '--repo',
+    `${owner}/${repoName}`,
+    '--workflow',
+    'mirror-sync.yml',
+    '--branch',
+    'sync',
+    '--status',
+    'in_progress',
+    '--limit',
+    '1',
+    '--json',
+    'databaseId',
+    '-q',
+    'length'
+  ]);
+  if (!result.ok) {
+    return null;
+  }
+  return result.stdout !== '0' && result.stdout.length > 0;
+}
+
+export function ghDispatchMirrorSyncWorkflow(
+  owner: string,
+  repoName: string,
+  logger?: SyncLogger
+): { ok: boolean; skipped?: boolean; notFound?: boolean } {
+  if (!ghCommandAvailable()) {
+    return { ok: false };
+  }
+  const inProgress = ghMirrorSyncRunInProgress(owner, repoName);
+  if (inProgress === true) {
+    logger?.write(`Skip mirror-sync dispatch on ${owner}/${repoName}: run already in progress`);
+    return { ok: false, skipped: true };
+  }
+  const result = runGh([
+    'workflow',
+    'run',
+    'mirror-sync.yml',
+    '--repo',
+    `${owner}/${repoName}`,
+    '--ref',
+    'sync'
+  ]);
+  if (result.ok) {
+    return { ok: true };
+  }
+  const detail = `${result.stderr} ${result.stdout}`.toLowerCase();
+  const notFound = detail.includes('404') || detail.includes('not found');
+  return { ok: false, notFound };
 }
 
 export function ensureGhMirrorRepo(input: {

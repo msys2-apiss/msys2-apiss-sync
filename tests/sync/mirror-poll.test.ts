@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { mirrorRepoNeedsSync, type MirrorPollGitHub } from '../../src/lib/mirror-poll.ts';
+import { mirrorRepoNeedsSync, mirrorSyncReadyState, type MirrorPollGitHub } from '../../src/lib/mirror-poll.ts';
 import type { MirrorSyncConfig } from '../../src/types/mirror-sync-config.ts';
 import type { SyncLogger } from '../../src/lib/log.ts';
 
@@ -25,6 +25,16 @@ function fakeGitHub(branchSha: string | null): MirrorPollGitHub {
     async dispatchMirrorSync(_repo, _contentBranch) {}
   };
 }
+
+describe('mirrorSyncReadyState', () => {
+  test('normal when workflow registered', () => {
+    expect(mirrorSyncReadyState({ WorkflowRegistered: true })).toBe('normal');
+  });
+
+  test('bootstrap when workflow not registered', () => {
+    expect(mirrorSyncReadyState({ WorkflowRegistered: false })).toBe('bootstrap');
+  });
+});
 
 describe('mirrorRepoNeedsSync', () => {
   test('returns false when mirror and upstream SHAs match', async () => {

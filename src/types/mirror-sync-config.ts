@@ -10,7 +10,7 @@ export interface MirrorSyncConfig {
   Url?: string;
   /** GitHub repo description used by gh repo create on first push-sync. */
   Description?: string;
-  /** When true (default), push to GitHub via SSH; requires MIRROR_PUSH_SSH_KEY. */
+  /** When true, push to GitHub via SSH; requires MIRROR_PUSH_SSH_KEY (e.g. gcc). Default false (HTTPS). */
   PushViaSsh?: boolean;
   SyncTags?: boolean;
   Notify?: {

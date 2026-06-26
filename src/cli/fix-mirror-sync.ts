@@ -9,7 +9,7 @@ import {
 import { getMirrorTipSha } from '../lib/history.ts';
 import { createSyncLogger, getWorkDirectory, setSyncUtf8Environment } from '../lib/log.ts';
 import { runGitText } from '../lib/git.ts';
-import { bootstrapMirrorWorkflowIfToken, getMirrorContentBranch } from '../lib/mirror-poll.ts';
+import { getMirrorContentBranch, startMirrorSyncAfterPush } from '../lib/mirror-poll.ts';
 import {
   initializeNamedMirrorRepository,
   MIRROR_SYNC_BRANCH,
@@ -102,13 +102,11 @@ async function main(): Promise<void> {
           pushMirrorContentBranch(mirrorPath, contentBranch, repoName, logger);
           pushMirrorSyncBranch(mirrorPath, repoName, logger);
         }
-        await bootstrapMirrorWorkflowIfToken({
+        await startMirrorSyncAfterPush({
           Owner: config.Owner,
           RepoName: repoName,
           ContentBranch: contentBranch,
-          Logger: logger,
-          TriggerSync: repaired,
-          WaitForSync: repaired
+          Logger: logger
         });
       }
       logMirrorTips(logger, repoName, mirrorPath, contentBranch, true);

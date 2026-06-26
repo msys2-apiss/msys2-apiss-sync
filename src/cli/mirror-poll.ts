@@ -1,4 +1,5 @@
 import { getSyncRepoRoot, loadSyncConfig } from '../lib/config.ts';
+import { requireGhCommand } from '../lib/gh-cli.ts';
 import { createMirrorPollGitHub, runMirrorPoll } from '../lib/mirror-poll.ts';
 import { createSyncLogger, setSyncUtf8Environment } from '../lib/log.ts';
 
@@ -8,14 +9,10 @@ async function main(): Promise<void> {
   const config = loadSyncConfig(repoRoot);
   const logger = createSyncLogger(repoRoot);
 
-  const token = process.env.MSYS2_APISS_SYNC_TOKEN ?? process.env.GITHUB_TOKEN;
-  if (!token) {
-    throw new Error('MSYS2_APISS_SYNC_TOKEN or GITHUB_TOKEN is required');
-  }
-
   try {
+    requireGhCommand();
     logger.write('Mirror poll start');
-    const github = createMirrorPollGitHub(token, config.Owner, logger);
+    const github = createMirrorPollGitHub(config.Owner, logger);
     await runMirrorPoll({
       RepoRoot: repoRoot,
       Config: config,

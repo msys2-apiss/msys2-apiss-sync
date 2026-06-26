@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          # PAT with repo + workflow scopes; see docs/usage.md (SYNC_DISPATCH_TOKEN).
+          # Package mirrors: SYNC_DISPATCH_TOKEN for repository_dispatch to msys2-apiss-sync.
           token: ${{ secrets.SYNC_DISPATCH_TOKEN || github.token }}
 
       - name: Read push transport
@@ -37,7 +37,7 @@ jobs:
             echo "Missing ${CONFIG} on sync branch"
             exit 1
           fi
-          PUSH_VIA_SSH="$(jq -r '.PushViaSsh // true' "${CONFIG}")"
+          PUSH_VIA_SSH="$(jq -r '.PushViaSsh // false' "${CONFIG}")"
           echo "via_ssh=${PUSH_VIA_SSH}" >> "$GITHUB_OUTPUT"
 
       - name: Configure SSH push

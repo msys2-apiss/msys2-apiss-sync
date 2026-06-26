@@ -14,37 +14,34 @@ Pushing to `main` on this repo runs [`mirror-poll.yml`](../.github/workflows/mir
 and [`sync-upstream.yml`](../.github/workflows/sync-upstream.yml) automatically.
 
 Requires the [GitHub CLI](https://cli.github.com/) (`gh auth login`) with access to
-`msys2-apiss`. Each mirror repo needs `SYNC_DISPATCH_TOKEN` (see below).
-`MSYS2_APISS_SYNC_TOKEN` is a secret on **`msys2-apiss/msys2-apiss-sync` only**
-(not on mirror repos).
+`msys2-apiss`. Local commands use **git** and **gh** only; no env secrets.
+Remote mirror repos may hold `SYNC_DISPATCH_TOKEN` or `MIRROR_PUSH_SSH_KEY` (see
+below); set them with `gh secret set` on each mirror repo.
 
-### Setup `SYNC_DISPATCH_TOKEN` (each mirror repo)
+### Setup `SYNC_DISPATCH_TOKEN` (package mirrors only)
 
-One PAT per mirror org setup; reuse the **same token value** on every mirror repo.
+Only **`MSYS2-packages`** and **`MINGW-packages`** need this secret
+(`Notify.Enabled: true` dispatches to `msys2-apiss-sync` after mirror-sync).
 
 1. **Create a PAT** ([fine-grained](https://github.com/settings/personal-access-tokens/new) recommended, or [classic](https://github.com/settings/tokens/new)):
-   - **Fine-grained:** resource owner = `msys2-apiss`; repository access = all mirror repos (or each repo); permissions: **Contents** Read and write, **Workflows** Read and write, **Metadata** Read-only.
+   - **Fine-grained:** resource owner = `msys2-apiss`; repository access =
+     `MSYS2-packages` and `MINGW-packages`; permissions: **Contents** Read and
+     write, **Workflows** Read and write, **Metadata** Read-only.
    - **Classic:** scopes **`repo`**, **`workflow`**.
-2. **Add the secret on each mirror** (Settings -> Secrets and variables -> Actions):
+2. **Add the secret on each package mirror**:
 
 ```bash
 gh secret set SYNC_DISPATCH_TOKEN --repo msys2-apiss/MSYS2-packages
 gh secret set SYNC_DISPATCH_TOKEN --repo msys2-apiss/MINGW-packages
-gh secret set SYNC_DISPATCH_TOKEN --repo msys2-apiss/mingw-w64
-gh secret set SYNC_DISPATCH_TOKEN --repo msys2-apiss/glibc
-gh secret set SYNC_DISPATCH_TOKEN --repo msys2-apiss/enscript
 ```
 
-Paste the same PAT when prompted. Used for **git push** during mirror-sync (required
-when upstream has `.github/workflows/*`) and for **repository_dispatch** to
-`msys2-apiss-sync` on package mirrors (`Notify.Enabled: true`). Mirror-only repos
-with no upstream workflow files (e.g. glibc) can omit the secret; checkout falls
-back to `GITHUB_TOKEN`.
+Mirror-only repos (`aports`, `glibc`, `gcc`, etc.) do not need this secret;
+mirror-sync uses `github.token` for checkout and push when the secret is unset.
 
 ### Setup `MIRROR_PUSH_SSH_KEY` (SSH push, large mirrors)
 
-When `PushViaSsh` is true in `config/mirror-sync/<repo>.json` (default for new
-mirrors), mirror-sync pushes via `git@github.com:` instead of HTTPS. This avoids
+When `PushViaSsh` is true in `config/mirror-sync/<repo>.json` (only gcc today),
+mirror-sync pushes via `git@github.com:` instead of HTTPS. This avoids
 HTTP/2 disconnects on large initial syncs (e.g. gcc).
 
 1. **Generate a deploy key** (write access) or reuse one org-wide key pair:
@@ -72,8 +69,7 @@ gh api repos/msys2-apiss/gcc/keys `
 Get-Content -Raw mirror-push | gh secret set MIRROR_PUSH_SSH_KEY --repo msys2-apiss/gcc
 ```
 
-`SYNC_DISPATCH_TOKEN` is still required for checkout and workflow dispatch;
-SSH is used only for `git push`.
+SSH is used only for `git push` on repos with `PushViaSsh` true.
 
 ### 1. Refresh mirrors from upstream
 
@@ -160,10 +156,9 @@ yarn mirror-poll
 local `sync` differs from `origin/sync`. Requires push access to `msys2-apiss/*`
 mirror repos.
 
-`yarn mirror-poll` compares each mirror content branch to upstream and dispatches
-`mirror-sync` only when they differ (same logic as CI). Requires
-`MSYS2_APISS_SYNC_TOKEN` (sync-repo secret) or `GITHUB_TOKEN` in the environment
-when run locally; mirror repos do not use this secret.
+`yarn mirror-poll` and `yarn fetch-mirrors --push-sync` dispatch `mirror-sync` and
+restore the mirror default branch via `gh` (`gh auth login` locally; `GH_TOKEN` in
+CI). No secrets on this repo.
 
 ### Full sync (retrieve, merge, replay, push)
 

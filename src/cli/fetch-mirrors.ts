@@ -8,9 +8,9 @@ import { getMirrorTipSha } from '../lib/history.ts';
 import { ensureGhMirrorRepo } from '../lib/gh-cli.ts';
 import { createSyncLogger, getWorkDirectory, setSyncUtf8Environment } from '../lib/log.ts';
 import {
-  bootstrapMirrorWorkflowIfToken,
   getMirrorContentBranch,
-  loadMirrorSyncConfigFile
+  loadMirrorSyncConfigFile,
+  startMirrorSyncAfterPush
 } from '../lib/mirror-poll.ts';
 import {
   initializeNamedMirrorRepository,
@@ -44,16 +44,11 @@ async function pushSyncMirror(input: {
   }
   pushMirrorContentBranch(input.MirrorPath, input.ContentBranch, input.RepoName, input.Logger);
   pushMirrorSyncBranch(input.MirrorPath, input.RepoName, input.Logger);
-  if (!isNewMirror) {
-    return;
-  }
-  await bootstrapMirrorWorkflowIfToken({
+  await startMirrorSyncAfterPush({
     Owner: input.Config.Owner,
     RepoName: input.RepoName,
     ContentBranch: input.ContentBranch,
-    Logger: input.Logger,
-    TriggerSync: true,
-    WaitForSync: true
+    Logger: input.Logger
   });
 }
 

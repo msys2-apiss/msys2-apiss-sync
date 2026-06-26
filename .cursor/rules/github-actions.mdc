@@ -27,24 +27,19 @@ Dry-run manifest verification: run locally (`yarn sync --dry-run --skip-fetch`);
 | `msys2-apiss/mingw-w64` | [SourceForge mingw-w64](https://git.code.sf.net/p/mingw-w64/mingw-w64) | no (mirror-only) |
 | `msys2-apiss/glibc` | [sourceware glibc](https://sourceware.org/git/glibc.git) | no (mirror-only) |
 
-Branch layout: **`sync`** (default) holds workflow and config; **`master`** is a
-pure fast-forward copy of upstream (no workflow commits on master).
+Branch layout: **`sync`** holds workflow and config; **`master`** is a pure
+fast-forward copy of upstream (no workflow commits on master).
 
 Template: `config/mirror-template/mirror-sync.yml`. Per-repo JSON:
 `config/mirror-sync/<repo-name>.json` (applied to `sync/.github/mirror-sync.json`
-by `yarn fetch-mirrors`). All mirrors: `SYNC_DISPATCH_TOKEN` (PAT with `repo` and
-`workflow` scopes; checkout and dispatch). Mirrors with `PushViaSsh` true (default
-for new mirrors): `MIRROR_PUSH_SSH_KEY` (deploy key private key; git push via
-SSH). Package mirrors: `Notify.Enabled`
-true. Mirror-only: `Notify.Enabled` false (secret still required when upstream
-has `.github/workflows/*`). Mirror
-branches are exact fast-forward copies of upstream (`master` matches upstream
-SHA). Tags sync by default (`SyncTags` omitted or true); set `SyncTags` false to skip.
+by `yarn fetch-mirrors`).
 
 ## Runner
 
 - Prefer `ubuntu-latest` with `actions/setup-node@v4` and Node.js 26+.
 - Run `yarn install --frozen-lockfile` before running sync commands.
+- `mirror-poll.yml` and local mirror commands use **`gh`** (`GH_TOKEN` in CI,
+  `gh auth login` locally). No secrets on `msys2-apiss-sync`.
 
 ## Concurrency
 
@@ -58,18 +53,17 @@ Long sync runs must not be cancelled by the next hourly cron. Scheduled runs
 skip when another `sync-upstream` job is already in progress; push, dispatch, and
 manual runs queue until the current run finishes.
 
-## Secrets
+## Secrets (mirror repos only)
 
-- `MSYS2_APISS_SYNC_TOKEN`: **`msys2-apiss/msys2-apiss-sync` only** (not mirror
-  repos). Write access to `msys2-apiss/msys2-apiss` and this repo; used by
-  `sync-upstream.yml`, `mirror-poll.yml`, and local `yarn mirror-poll` /
-  `yarn fetch-mirrors --push-sync` bootstrap (via env or `GITHUB_TOKEN` from
-  `gh auth`).
-- `SYNC_DISPATCH_TOKEN`: **each mirror repo**; PAT with `repo` + `workflow` for
-  checkout, workflow_dispatch, and repository_dispatch to `msys2-apiss-sync`
-- `MIRROR_PUSH_SSH_KEY`: mirror repos with `PushViaSsh` true; deploy key for
-  `git@github.com` push (avoids HTTPS HTTP/2 failures on large repos)
-- Never log tokens; pass via `env:` to script steps only.
+Set on remote mirror repos with `gh secret set`; not used by local tooling.
+
+- `SYNC_DISPATCH_TOKEN`: **package mirrors only** (`MSYS2-packages`,
+  `MINGW-packages`) where `Notify.Enabled` is true; `repository_dispatch` to
+  `msys2-apiss-sync` after mirror-sync advances content.
+- `MIRROR_PUSH_SSH_KEY`: mirrors with `PushViaSsh` true (e.g. gcc); deploy key
+  for `git@github.com` push.
+- Mirror-only repos with `Notify.Enabled` false use `github.token` inside
+  mirror-sync when `SYNC_DISPATCH_TOKEN` is unset.
 
 ## Push policy
 
@@ -86,4 +80,5 @@ permissions:
   contents: read   # this repo
 ```
 
-Destination clone/push uses PAT secret, not `GITHUB_TOKEN` write to other repos.
+CI clone/push to `msys2-apiss/msys2-apiss` uses `gh` with `GH_TOKEN`:
+`${{ github.token }}`.

@@ -153,8 +153,8 @@ yarn fetch-mirrors --repo my-tool --push-sync
 
 This fetches upstream commit graph blob:none, checks out the root commit only
 locally, pushes that as `master`/`main`, pushes `sync`, triggers `mirror-sync`
-on GitHub (full upstream fetch happens in CI), waits for that run, then sets
-default back to the content branch.
+on GitHub (full upstream fetch happens in CI), then sets default back to the
+content branch without waiting for the run to finish.
 
 Later, `yarn fetch-mirrors` clones into `.work/mirrors/my-tool/` on branch
 **`sync`** and applies `config/mirror-sync/my-tool.json` when templates differ.
@@ -166,9 +166,11 @@ yarn fetch-mirrors --skip-fetch --push-sync
 ```
 
 On first bootstrap, `--push-sync` temporarily sets default branch to `sync` so
-GitHub registers `mirror-sync.yml`, triggers one sync run, **waits for it to
-finish**, then sets default back to the content branch. Later `mirror-poll`
-dispatches on ref `sync` without changing default branch again.
+GitHub registers `mirror-sync.yml`, triggers mirror-sync, then immediately sets
+default back to the content branch (`master` or configured mirror branch). It
+does not wait for the run to finish. Later `--push-sync` and `mirror-poll`
+dispatch on ref `sync` when the repo already has Actions and default branch is
+the content branch.
 
 Or manually:
 
@@ -180,9 +182,10 @@ gh run watch --repo msys2-apiss/my-tool $(gh run list --repo msys2-apiss/my-tool
 gh api repos/msys2-apiss/my-tool -X PATCH -f default_branch=master
 ```
 
-Set repo secret `SYNC_DISPATCH_TOKEN` on every mirror (see [`usage.md`](usage.md)).
-Required when upstream has `.github/workflows/*` (e.g. mingw-w64). Optional on
-mirror-only repos whose upstream has no workflow files (e.g. glibc).
+Mirror-only repos do not need remote secrets. Package mirrors with
+`Notify.Enabled: true` need `SYNC_DISPATCH_TOKEN` on the mirror repo (see
+[`usage.md`](usage.md)). Repos with `PushViaSsh` true need `MIRROR_PUSH_SSH_KEY`.
+Set secrets with `gh secret set` on each mirror repo.
 
 Or squash local `.github/` edits without re-fetching templates:
 
@@ -216,10 +219,10 @@ another replayed source requires a `Sources.*` entry, destination path mapping,
 and replay code changes -- see [`PLAN.md`](PLAN.md). For those mirrors, the local
 path is still `.work/mirrors/<repo>/`.
 
-Use `Notify.Enabled: true` in `.github/mirror-sync.json` and set
-`SYNC_DISPATCH_TOKEN` on the mirror repo (PAT with `repo` and `workflow` scopes).
-That secret is used for git push and for dispatch to `msys2-apiss-sync` after
-push.
+Use `Notify.Enabled: true` in `config/mirror-sync/<repo>.json` and set
+`SYNC_DISPATCH_TOKEN` on the mirror repo with `gh secret set`. That secret is
+used for `repository_dispatch` to `msys2-apiss-sync` after mirror-sync advances
+content.
 
 ## Verify
 

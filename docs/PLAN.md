@@ -57,7 +57,8 @@ Tests: `tests/sync/resume.test.ts`, `tests/sync/cursor-branch.test.ts`.
 Scripts read via `config.ts`; they never write config. Full file content is defined in
 **Phase 1a** below.
 
-**Not in sync.json:** GitHub secrets (`MSYS2_APISS_SYNC_TOKEN`, etc.), CLI flags (`--clean`,
+**Not in sync.json:** GitHub secrets on mirror repos (`SYNC_DISPATCH_TOKEN`,
+`MIRROR_PUSH_SSH_KEY`), CLI flags (`--clean`,
 `--dry-run`, `--destination-path`, `--max-commits`), and ephemeral paths (default `.work/`
 derived in code).
 

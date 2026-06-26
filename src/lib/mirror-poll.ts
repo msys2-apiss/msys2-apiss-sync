@@ -3,10 +3,18 @@ import { existsSync, readFileSync } from 'node:fs';
 
 import type { MirrorSyncConfig } from '../types/mirror-sync-config.ts';
 import { getMirrorPollRepoNames, loadSyncConfig, type SyncConfig } from './config.ts';
+import {
+  ghCommandAvailable,
+  ghDispatchMirrorSyncWorkflow,
+  ghGetBranchSha,
+  ghMirrorSyncRunInProgress,
+  ghMirrorSyncWorkflowRegistered,
+  getGhRepoDefaultBranch,
+  requireGhCommand,
+  setGhRepoDefaultBranch
+} from './gh-cli.ts';
 import type { SyncLogger } from './log.ts';
 import { getMirrorSyncConfigPath } from './repos.ts';
-
-const GITHUB_API_VERSION = '2026-03-10';
 
 export interface MirrorPollGitHub {
   getBranchSha(repo: string, branch: string): Promise<string | null>;
@@ -92,80 +100,37 @@ export async function mirrorRepoNeedsSync(input: {
   return false;
 }
 
-class GitHubApiError extends Error {
-  status: number;
-  body: string;
+class MirrorSyncDispatchNotFoundError extends Error {}
 
-  constructor(status: number, body: string) {
-    super(`GitHub API ${status}: ${body}`);
-    this.status = status;
-    this.body = body;
-  }
+function mirrorSyncRunInProgress(owner: string, repo: string): boolean {
+  return ghMirrorSyncRunInProgress(owner, repo) ?? false;
 }
 
-async function githubRequest<T>(
-  token: string,
-  path: string,
-  init?: RequestInit
-): Promise<T | undefined> {
-  const res = await fetch(`https://api.github.com${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': GITHUB_API_VERSION,
-      ...(init?.headers ?? {})
-    }
-  });
-  if (res.status === 404) {
-    throw new GitHubApiError(404, await res.text());
-  }
-  if (!res.ok) {
-    throw new GitHubApiError(res.status, await res.text());
-  }
-  if (res.status === 204) {
-    return undefined;
-  }
-  return (await res.json()) as T;
-}
-
-async function mirrorSyncRunInProgress(
-  token: string,
-  owner: string,
-  repo: string
-): Promise<boolean> {
-  const data = await githubRequest<{ workflow_runs: { status: string }[] }>(
-    token,
-    `/repos/${owner}/${repo}/actions/workflows/mirror-sync.yml/runs` +
-      '?branch=sync&status=in_progress&per_page=1'
-  );
-  return (data?.workflow_runs.length ?? 0) > 0;
-}
-
-async function dispatchMirrorSyncWorkflow(
-  token: string,
-  owner: string,
-  repo: string,
-  logger?: SyncLogger
-): Promise<boolean> {
-  if (logger && (await mirrorSyncRunInProgress(token, owner, repo))) {
-    logger.write(`Skip mirror-sync dispatch on ${owner}/${repo}: run already in progress`);
+async function dispatchMirrorSyncWorkflow(input: {
+  Owner: string;
+  RepoName: string;
+  Logger?: SyncLogger;
+}): Promise<boolean> {
+  requireGhCommand();
+  const repoSlug = `${input.Owner}/${input.RepoName}`;
+  if (input.Logger && mirrorSyncRunInProgress(input.Owner, input.RepoName)) {
+    input.Logger.write(`Skip mirror-sync dispatch on ${repoSlug}: run already in progress`);
     return false;
   }
-  await githubRequest(
-    token,
-    `/repos/${owner}/${repo}/actions/workflows/mirror-sync.yml/dispatches`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ref: 'sync' })
-    }
-  );
-  return true;
+  const result = ghDispatchMirrorSyncWorkflow(input.Owner, input.RepoName, input.Logger);
+  if (result.ok) {
+    return true;
+  }
+  if (result.skipped) {
+    return false;
+  }
+  if (result.notFound) {
+    throw new MirrorSyncDispatchNotFoundError();
+  }
+  throw new Error(`gh workflow run failed for ${repoSlug}`);
 }
 
 async function dispatchWithRetry(
-  token: string,
   owner: string,
   repo: string,
   contentBranch: string,
@@ -175,36 +140,32 @@ async function dispatchWithRetry(
   let bootstrapped = false;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      await dispatchMirrorSyncWorkflow(token, owner, repo, logger);
+      await dispatchMirrorSyncWorkflow({ Owner: owner, RepoName: repo, Logger: logger });
       return;
     } catch (error) {
-      if (error instanceof GitHubApiError && error.status === 404 && !bootstrapped) {
+      if (error instanceof MirrorSyncDispatchNotFoundError && !bootstrapped) {
         bootstrapped = true;
         logger.write(`${repo}: mirror-sync not registered; bootstrapping workflow`, 'Warn');
-        await bootstrapMirrorWorkflowIfNeeded({
+        await ensureMirrorSyncWorkflowRegistered({
           Owner: owner,
           RepoName: repo,
           ContentBranch: contentBranch,
-          Token: token,
-          Logger: logger,
-          TriggerSync: false
+          Logger: logger
         });
         continue;
       }
-      if (error instanceof GitHubApiError && error.status === 404) {
+      if (error instanceof MirrorSyncDispatchNotFoundError) {
         throw new Error(
           `${owner}/${repo}: mirror-sync.yml not found for workflow_dispatch after bootstrap. ` +
-            `See docs/add-mirror.md. API: ${error.body}`
+            'See docs/add-mirror.md.'
         );
       }
-      const status = error instanceof GitHubApiError ? error.status : undefined;
-      const retryable = status === undefined || status >= 500 || status === 429;
-      if (!retryable || attempt === maxAttempts) {
+      if (attempt === maxAttempts) {
         throw error;
       }
       const delayMs = 1000 * 2 ** (attempt - 1);
       logger.write(
-        `Dispatch attempt ${attempt} failed (${status ?? 'unknown'}), retry in ${delayMs}ms`,
+        `Dispatch attempt ${attempt} failed, retry in ${delayMs}ms`,
         'Warn'
       );
       await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -212,66 +173,28 @@ async function dispatchWithRetry(
   }
 }
 
-export function getMirrorAdminGitHubToken(): string | undefined {
-  return process.env.MSYS2_APISS_SYNC_TOKEN ?? process.env.GITHUB_TOKEN;
+export function mirrorSyncWorkflowRegistered(owner: string, repoName: string): boolean {
+  requireGhCommand();
+  return ghMirrorSyncWorkflowRegistered(owner, repoName) ?? false;
 }
 
-export async function mirrorSyncWorkflowRegistered(
-  token: string,
-  owner: string,
-  repoName: string
-): Promise<boolean> {
-  const data = await githubRequest<{ workflows: { path: string }[] }>(
-    token,
-    `/repos/${owner}/${repoName}/actions/workflows`
-  );
-  return data?.workflows.some((w) => w.path === '.github/workflows/mirror-sync.yml') ?? false;
-}
-
-async function getMirrorRepoDefaultBranch(
-  token: string,
-  owner: string,
-  repoName: string
-): Promise<string | null> {
-  const repo = await githubRequest<{ default_branch: string }>(
-    token,
-    `/repos/${owner}/${repoName}`
-  );
-  return repo?.default_branch ?? null;
-}
-
-async function setMirrorRepoDefaultBranch(
-  token: string,
-  owner: string,
-  repoName: string,
-  branch: string,
-  logger: SyncLogger
-): Promise<void> {
-  await githubRequest(token, `/repos/${owner}/${repoName}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ default_branch: branch })
-  });
-  logger.write(`Set ${repoName} default branch to ${branch}`);
-}
-
-async function waitForMirrorSyncWorkflowRegistered(
-  token: string,
-  owner: string,
-  repoName: string,
-  logger: SyncLogger,
-  maxAttempts = 5
-): Promise<boolean> {
+async function waitForMirrorSyncWorkflowRegistered(input: {
+  Owner: string;
+  RepoName: string;
+  Logger: SyncLogger;
+  maxAttempts?: number;
+}): Promise<boolean> {
+  const maxAttempts = input.maxAttempts ?? 5;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    if (await mirrorSyncWorkflowRegistered(token, owner, repoName)) {
+    if (mirrorSyncWorkflowRegistered(input.Owner, input.RepoName)) {
       return true;
     }
     if (attempt === maxAttempts) {
       return false;
     }
     const delayMs = 2000;
-    logger.write(
-      `${repoName}: waiting for mirror-sync workflow registration (${attempt}/${maxAttempts})`,
+    input.Logger.write(
+      `${input.RepoName}: waiting for mirror-sync workflow registration (${attempt}/${maxAttempts})`,
       'Warn'
     );
     await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -279,184 +202,117 @@ async function waitForMirrorSyncWorkflowRegistered(
   return false;
 }
 
-async function waitForMirrorSyncWorkflowRun(input: {
-  Token: string;
-  Owner: string;
-  RepoName: string;
-  Logger: SyncLogger;
-  TimeoutMs?: number;
-}): Promise<void> {
-  const timeoutMs = input.TimeoutMs ?? 6 * 60 * 60 * 1000;
-  const deadline = Date.now() + timeoutMs;
-  const pollMs = 15_000;
-  input.Logger.write(`Waiting for mirror-sync on ${input.RepoName} to finish`);
-  let seenRunId: number | null = null;
-  while (Date.now() < deadline) {
-    const data = await githubRequest<{
-      workflow_runs: { id: number; status: string; conclusion: string | null }[];
-    }>(
-      input.Token,
-      `/repos/${input.Owner}/${input.RepoName}/actions/workflows/mirror-sync.yml/runs` +
-        '?branch=sync&event=workflow_dispatch&per_page=1'
-    );
-    const run = data?.workflow_runs[0];
-    if (run) {
-      if (seenRunId !== run.id) {
-        seenRunId = run.id;
-        input.Logger.write(`${input.RepoName}: mirror-sync run ${run.id} (${run.status})`);
-      }
-      if (run.status === 'completed') {
-        if (run.conclusion !== 'success') {
-          throw new Error(`${input.RepoName}: mirror-sync run ${run.id} ${run.conclusion ?? 'failed'}`);
-        }
-        input.Logger.write(`${input.RepoName}: mirror-sync run ${run.id} completed`);
-        return;
-      }
-    }
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
-  }
-  throw new Error(`${input.RepoName}: timed out waiting for mirror-sync (${timeoutMs}ms)`);
+export function mirrorSyncReadyState(input: {
+  WorkflowRegistered: boolean;
+}): 'normal' | 'bootstrap' {
+  return input.WorkflowRegistered ? 'normal' : 'bootstrap';
 }
 
-export async function bootstrapMirrorWorkflowIfNeeded(input: {
-  Owner: string;
-  RepoName: string;
-  ContentBranch: string;
-  Token: string;
-  Logger: SyncLogger;
-  TriggerSync?: boolean;
-  WaitForSync?: boolean;
-}): Promise<void> {
-  const registered = await mirrorSyncWorkflowRegistered(
-    input.Token,
-    input.Owner,
-    input.RepoName
-  );
-  const currentDefault = await getMirrorRepoDefaultBranch(
-    input.Token,
-    input.Owner,
-    input.RepoName
-  );
-  const contentBranch = input.ContentBranch;
-
-  if (!registered) {
-    input.Logger.write(
-      `${input.RepoName}: registering mirror-sync (temporary default branch sync)`
-    );
-    if (currentDefault !== 'sync') {
-      await setMirrorRepoDefaultBranch(
-        input.Token,
-        input.Owner,
-        input.RepoName,
-        'sync',
-        input.Logger
-      );
-    }
-    const ready = await waitForMirrorSyncWorkflowRegistered(
-      input.Token,
-      input.Owner,
-      input.RepoName,
-      input.Logger
-    );
-    if (!ready) {
-      throw new Error(
-        `${input.Owner}/${input.RepoName}: mirror-sync workflow did not register after ` +
-          'setting default branch to sync'
-      );
-    }
-    if (input.TriggerSync !== false) {
-      const triggered = await dispatchMirrorSyncWorkflow(
-        input.Token,
-        input.Owner,
-        input.RepoName,
-        input.Logger
-      );
-      if (triggered) {
-        input.Logger.write(`Triggered initial mirror-sync on ${input.Owner}/${input.RepoName}`);
-      }
-      if (triggered && input.WaitForSync !== false) {
-        await waitForMirrorSyncWorkflowRun({
-          Token: input.Token,
-          Owner: input.Owner,
-          RepoName: input.RepoName,
-          Logger: input.Logger
-        });
-      }
-    }
-    if (contentBranch !== 'sync') {
-      await setMirrorRepoDefaultBranch(
-        input.Token,
-        input.Owner,
-        input.RepoName,
-        contentBranch,
-        input.Logger
-      );
-    }
-    return;
-  }
-
-  if (currentDefault === 'sync' && contentBranch !== 'sync') {
-    await setMirrorRepoDefaultBranch(
-      input.Token,
-      input.Owner,
-      input.RepoName,
-      contentBranch,
-      input.Logger
-    );
-  }
-
-  if (input.TriggerSync) {
-    const triggered = await dispatchMirrorSyncWorkflow(
-      input.Token,
-      input.Owner,
-      input.RepoName,
-      input.Logger
-    );
-    if (triggered) {
-      input.Logger.write(`Triggered mirror-sync on ${input.Owner}/${input.RepoName}`);
-    }
-  }
+export async function mirrorRepoReadyForNormalSync(
+  owner: string,
+  repoName: string
+): Promise<boolean> {
+  return mirrorSyncWorkflowRegistered(owner, repoName);
 }
 
-export async function bootstrapMirrorWorkflowIfToken(input: {
+async function ensureMirrorSyncWorkflowRegistered(input: {
   Owner: string;
   RepoName: string;
   ContentBranch: string;
   Logger: SyncLogger;
-  TriggerSync?: boolean;
-  WaitForSync?: boolean;
 }): Promise<void> {
-  const token = getMirrorAdminGitHubToken();
-  if (!token) {
-    input.Logger.write(
-      `No MSYS2_APISS_SYNC_TOKEN or GITHUB_TOKEN in environment; skip workflow ` +
-        `bootstrap for ${input.RepoName} (secret lives on msys2-apiss-sync only; ` +
-        'see docs/add-mirror.md)',
-      'Warn'
-    );
+  if (mirrorSyncWorkflowRegistered(input.Owner, input.RepoName)) {
     return;
   }
-  await bootstrapMirrorWorkflowIfNeeded({ ...input, Token: token });
+  input.Logger.write(
+    `${input.RepoName}: registering mirror-sync (temporary default branch sync)`
+  );
+  const currentDefault = getGhRepoDefaultBranch(input.Owner, input.RepoName);
+  if (currentDefault !== 'sync') {
+    setGhRepoDefaultBranch(input.Owner, input.RepoName, 'sync', input.Logger);
+  }
+  const ready = await waitForMirrorSyncWorkflowRegistered(input);
+  if (!ready) {
+    throw new Error(
+      `${input.Owner}/${input.RepoName}: mirror-sync workflow did not register after ` +
+        'setting default branch to sync'
+    );
+  }
 }
 
-export function createMirrorPollGitHub(token: string, owner: string, logger: SyncLogger): MirrorPollGitHub {
+async function restoreMirrorContentDefaultBranch(input: {
+  Owner: string;
+  RepoName: string;
+  ContentBranch: string;
+  Logger: SyncLogger;
+}): Promise<void> {
+  if (input.ContentBranch === 'sync' || !ghCommandAvailable()) {
+    return;
+  }
+  const currentDefault = getGhRepoDefaultBranch(input.Owner, input.RepoName);
+  if (currentDefault === null || currentDefault === input.ContentBranch) {
+    return;
+  }
+  setGhRepoDefaultBranch(
+    input.Owner,
+    input.RepoName,
+    input.ContentBranch,
+    input.Logger
+  );
+}
+
+async function runMirrorSyncDispatch(input: {
+  Owner: string;
+  RepoName: string;
+  ContentBranch: string;
+  Logger: SyncLogger;
+}): Promise<void> {
+  if (!ghCommandAvailable()) {
+    return;
+  }
+  if (await mirrorRepoReadyForNormalSync(input.Owner, input.RepoName)) {
+    input.Logger.write(`${input.RepoName}: mirror ready; triggering mirror-sync`);
+    await dispatchMirrorSyncWorkflow({
+      Owner: input.Owner,
+      RepoName: input.RepoName,
+      Logger: input.Logger
+    });
+    return;
+  }
+
+  input.Logger.write(`${input.RepoName}: bootstrapping mirror-sync before trigger`);
+  if (!mirrorSyncWorkflowRegistered(input.Owner, input.RepoName)) {
+    await ensureMirrorSyncWorkflowRegistered(input);
+  }
+
+  const triggered = await dispatchMirrorSyncWorkflow({
+    Owner: input.Owner,
+    RepoName: input.RepoName,
+    Logger: input.Logger
+  });
+  if (triggered) {
+    input.Logger.write(`Triggered mirror-sync on ${input.Owner}/${input.RepoName}`);
+  }
+}
+
+/** After push to sync: bootstrap when needed, dispatch mirror-sync, restore default (gh). */
+export async function startMirrorSyncAfterPush(input: {
+  Owner: string;
+  RepoName: string;
+  ContentBranch: string;
+  Logger: SyncLogger;
+}): Promise<void> {
+  await runMirrorSyncDispatch(input);
+  await restoreMirrorContentDefaultBranch(input);
+}
+
+export function createMirrorPollGitHub(owner: string, logger: SyncLogger): MirrorPollGitHub {
   return {
     async getBranchSha(repo, branch) {
-      try {
-        const data = await githubRequest<{ commit: { sha: string } }>(
-          token,
-          `/repos/${owner}/${repo}/branches/${encodeURIComponent(branch)}`
-        );
-        return data?.commit.sha ?? null;
-      } catch (error) {
-        if (error instanceof GitHubApiError && error.status === 404) {
-          return null;
-        }
-        throw error;
-      }
+      return ghGetBranchSha(owner, repo, branch);
     },
     async dispatchMirrorSync(repo, contentBranch) {
-      await dispatchWithRetry(token, owner, repo, contentBranch, logger);
+      await dispatchWithRetry(owner, repo, contentBranch, logger);
     }
   };
 }

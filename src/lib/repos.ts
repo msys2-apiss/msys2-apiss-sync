@@ -457,6 +457,22 @@ function ensureGithubSshPushUrl(mirrorPath: string, logger: SyncLogger): void {
   logger.write(`origin push URL: ${sshUrl}`);
 }
 
+function mirrorPushViaSsh(mirrorPath: string): boolean {
+  const configPath = join(mirrorPath, '.github', 'mirror-sync.json');
+  try {
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as { PushViaSsh?: boolean };
+    return parsed.PushViaSsh === true;
+  } catch {
+    return false;
+  }
+}
+
+function maybeEnsureGithubSshPushUrl(mirrorPath: string, logger: SyncLogger): void {
+  if (mirrorPushViaSsh(mirrorPath)) {
+    ensureGithubSshPushUrl(mirrorPath, logger);
+  }
+}
+
 export function pushMirrorContentBranch(
   mirrorPath: string,
   contentBranch: string,
@@ -487,7 +503,7 @@ export function pushMirrorContentBranch(
     return false;
   }
   if (remoteSha === null) {
-    ensureGithubSshPushUrl(mirrorPath, logger);
+    maybeEnsureGithubSshPushUrl(mirrorPath, logger);
     runGit(
       mirrorPath,
       ['push', '-u', 'origin', `${contentBranch}:${contentBranch}`],
@@ -503,7 +519,7 @@ export function pushMirrorContentBranch(
     return false;
   }
   if (testGitAncestor(mirrorPath, remoteSha, pushSha)) {
-    ensureGithubSshPushUrl(mirrorPath, logger);
+    maybeEnsureGithubSshPushUrl(mirrorPath, logger);
     runGit(
       mirrorPath,
       ['push', '-u', 'origin', `${contentBranch}:${contentBranch}`],
@@ -535,7 +551,7 @@ export function pushMirrorSyncBranch(
       return false;
     }
   }
-  ensureGithubSshPushUrl(mirrorPath, logger);
+  maybeEnsureGithubSshPushUrl(mirrorPath, logger);
   runGit(mirrorPath, ['push', '--force-with-lease', 'origin', MIRROR_SYNC_BRANCH], {}, 5, logger);
   logger.write(`Pushed ${MIRROR_SYNC_BRANCH} to origin for ${repoName}`);
   return true;
