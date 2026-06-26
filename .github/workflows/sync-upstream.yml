@@ -6,9 +6,7 @@ on:
       - main
   repository_dispatch:
     types:
-      - upstream-updated
-      - msys2-packages-updated
-      - mingw-packages-updated
+      - workflow_dispatch_mirror_merge
   schedule:
     - cron: '0 * * * *'
     - cron: '0 3 * * *'

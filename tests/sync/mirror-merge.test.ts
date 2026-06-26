@@ -37,7 +37,7 @@ const testConfig: SyncConfig = {
   Mirrors: {
     Repos: ['MSYS2-packages', 'MINGW-packages'],
     SyncIntervalMinutes: 15,
-    DispatchEventType: 'upstream-updated'
+    DispatchEventType: 'workflow_dispatch_mirror_merge'
   },
   Replay: {
     MinReplayAgeMinutes: 5,

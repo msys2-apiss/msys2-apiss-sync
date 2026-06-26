@@ -39,7 +39,7 @@
       "aports"
     ],
     "SyncIntervalMinutes": 15,
-    "DispatchEventType": "upstream-updated"
+    "DispatchEventType": "workflow_dispatch_mirror_merge"
   },
   "Replay": {
     "MinReplayAgeMinutes": 5,

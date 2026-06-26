@@ -631,7 +631,7 @@ Edit in git only when values change (rare).
       "mingw-w64"
     ],
     "SyncIntervalMinutes": 15,
-    "DispatchEventType": "upstream-updated"
+    "DispatchEventType": "workflow_dispatch_mirror_merge"
   },
   "Replay": {
     "MinReplayAgeMinutes": 5,

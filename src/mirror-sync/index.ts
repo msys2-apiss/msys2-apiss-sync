@@ -6,6 +6,8 @@ import type { MirrorSyncBranchPair, MirrorSyncConfig } from '../types/mirror-syn
 
 export type { Logger } from '../git/log.ts';
 
+export const MIRROR_MERGE_DISPATCH_EVENT = 'workflow_dispatch_mirror_merge';
+
 export interface MirrorSyncBranchResult {
   Upstream: string;
   Mirror: string;
@@ -18,6 +20,8 @@ export interface MirrorSyncResult {
   Advanced: boolean;
   PrimarySha: string | null;
   PrimaryRef: string | null;
+  /** True when mirror advanced and Notify.Enabled: dispatch Block 4 CI. */
+  DispatchMirrorMerge: boolean;
   Notify: {
     Enabled: boolean;
     Repository?: string;
@@ -64,8 +68,12 @@ export function getMirrorSyncNotify(config: MirrorSyncConfig): MirrorSyncResult[
   return {
     Enabled: true,
     Repository: config.Notify.Repository,
-    EventType: config.Notify.EventType
+    EventType: config.Notify.EventType ?? MIRROR_MERGE_DISPATCH_EVENT
   };
+}
+
+export function shouldDispatchMirrorMerge(result: Pick<MirrorSyncResult, 'Advanced' | 'Notify'>): boolean {
+  return result.Advanced && result.Notify.Enabled;
 }
 
 function getRefSha(repoPath: string, ref: string): string | null {
@@ -148,12 +156,15 @@ export function runMirrorSync(input: MirrorSyncOptions): MirrorSyncResult {
   }
 
   const primary = advancedBranches[0] ?? null;
+  const notify = getMirrorSyncNotify(input.Config);
+  const advanced = advancedBranches.length > 0;
   return {
-    Advanced: advancedBranches.length > 0,
+    Advanced: advanced,
     PrimarySha: primary?.AfterSha ?? null,
     PrimaryRef: primary ? `refs/heads/${primary.Mirror}` : null,
-    Notify: getMirrorSyncNotify(input.Config),
-    Branches: branches
+    Notify: notify,
+    Branches: branches,
+    DispatchMirrorMerge: advanced && notify.Enabled
   };
 }
 
@@ -164,6 +175,7 @@ export function writeGitHubOutput(path: string, result: MirrorSyncResult): void 
     lines.push(`ref=${result.PrimaryRef}`);
   }
   lines.push(`notify=${result.Notify.Enabled ? 'true' : 'false'}`);
+  lines.push(`dispatch_mirror_merge=${result.DispatchMirrorMerge ? 'true' : 'false'}`);
   if (result.Notify.Enabled) {
     lines.push(`notify_repository=${result.Notify.Repository ?? ''}`);
     lines.push(`notify_event_type=${result.Notify.EventType ?? ''}`);

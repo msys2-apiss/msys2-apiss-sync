@@ -160,13 +160,19 @@ jobs:
           if [ "${NOTIFY_ENABLED}" = "true" ]; then
             echo "notify=true" >> "$GITHUB_OUTPUT"
             echo "notify_repository=$(jq -r '.Notify.Repository' "${CONFIG}")" >> "$GITHUB_OUTPUT"
-            echo "notify_event_type=$(jq -r '.Notify.EventType' "${CONFIG}")" >> "$GITHUB_OUTPUT"
+            echo "notify_event_type=$(jq -r '.Notify.EventType // "workflow_dispatch_mirror_merge"' "${CONFIG}")" >> "$GITHUB_OUTPUT"
           else
             echo "notify=false" >> "$GITHUB_OUTPUT"
           fi
 
+          if [ "${ADVANCED}" = "true" ] && [ "${NOTIFY_ENABLED}" = "true" ]; then
+            echo "dispatch_mirror_merge=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "dispatch_mirror_merge=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Notify downstream
-        if: steps.sync.outputs.advanced == 'true' && steps.sync.outputs.notify == 'true'
+        if: steps.sync.outputs.dispatch_mirror_merge == 'true'
         uses: peter-evans/repository-dispatch@v4
         with:
           token: ${{ secrets.SYNC_DISPATCH_TOKEN }}

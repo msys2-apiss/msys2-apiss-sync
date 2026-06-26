@@ -1,19 +1,19 @@
 import { resolve } from 'node:path';
 
-import { createSyncLogger, setSyncUtf8Environment } from '../lib/log.ts';
+import { readStringOption } from './args.ts';
 import {
   loadMirrorSyncConfig,
   runMirrorSync,
   writeGitHubOutput
-} from '../mirror-sync/index.ts';
-import { readStringOption } from './args.ts';
+} from './index.ts';
+import { createMirrorSyncLogger, setMirrorSyncUtf8Environment } from './log.ts';
 
 async function main(): Promise<void> {
-  setSyncUtf8Environment();
+  setMirrorSyncUtf8Environment();
   const args = process.argv.slice(2);
   const repoPath = resolve(readStringOption(args, '--repo-path') ?? process.cwd());
   const configPath = resolve(readStringOption(args, '--config') ?? `${repoPath}/.github/mirror-sync.json`);
-  const logger = createSyncLogger(repoPath);
+  const logger = createMirrorSyncLogger();
 
   try {
     const result = runMirrorSync({
@@ -24,7 +24,7 @@ async function main(): Promise<void> {
     if (process.env.GITHUB_OUTPUT) {
       writeGitHubOutput(process.env.GITHUB_OUTPUT, result);
     }
-    logger.write(`Mirror-Sync done. advanced=${result.Advanced}`);
+    logger.write(`done. advanced=${result.Advanced} dispatch_mirror_merge=${result.DispatchMirrorMerge}`);
   } catch (error) {
     logger.write(error instanceof Error ? error.message : String(error), 'Error');
     process.exitCode = 1;

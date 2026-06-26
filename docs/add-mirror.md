@@ -133,7 +133,7 @@ Register the repo name in `config/sync.json` `Mirrors.Repos`:
     "my-tool"
   ],
   "SyncIntervalMinutes": 15,
-  "DispatchEventType": "upstream-updated"
+  "DispatchEventType": "workflow_dispatch_mirror_merge"
 }
 ```
 

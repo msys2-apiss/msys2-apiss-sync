@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -8,7 +8,9 @@ import {
   getMirrorSyncNotify,
   mirrorBranchNeedsUpdate,
   runMirrorSync,
+  shouldDispatchMirrorMerge,
   validateMirrorSyncConfig,
+  writeGitHubOutput,
   type Logger
 } from '../../src/mirror-sync/index.ts';
 import type { MirrorSyncConfig } from '../../src/types/mirror-sync-config.ts';
@@ -75,6 +77,36 @@ describe('getMirrorSyncNotify', () => {
       EventType: 'workflow_dispatch_mirror_merge'
     });
   });
+
+  test('defaults EventType when notify is enabled without EventType', () => {
+    expect(getMirrorSyncNotify(mirrorConfig('https://example.com/upstream.git', {
+      Notify: {
+        Enabled: true,
+        Repository: 'msys2-apiss/msys2-apiss-sync'
+      }
+    }))).toEqual({
+      Enabled: true,
+      Repository: 'msys2-apiss/msys2-apiss-sync',
+      EventType: 'workflow_dispatch_mirror_merge'
+    });
+  });
+});
+
+describe('shouldDispatchMirrorMerge', () => {
+  test('is true only when mirror advanced and notify is enabled', () => {
+    expect(shouldDispatchMirrorMerge({
+      Advanced: true,
+      Notify: { Enabled: true, Repository: 'msys2-apiss/msys2-apiss-sync' }
+    })).toBe(true);
+    expect(shouldDispatchMirrorMerge({
+      Advanced: true,
+      Notify: { Enabled: false }
+    })).toBe(false);
+    expect(shouldDispatchMirrorMerge({
+      Advanced: false,
+      Notify: { Enabled: true, Repository: 'msys2-apiss/msys2-apiss-sync' }
+    })).toBe(false);
+  });
 });
 
 describe('runMirrorSync', () => {
@@ -101,6 +133,7 @@ describe('runMirrorSync', () => {
         Logger: noopLogger
       });
       expect(first.Advanced).toBe(true);
+      expect(first.DispatchMirrorMerge).toBe(false);
       expect(first.PrimarySha).toBe(upstreamTip);
       expect(runGit(originPath, ['rev-parse', 'master']).trim()).toBe(upstreamTip);
 
@@ -110,6 +143,67 @@ describe('runMirrorSync', () => {
         Logger: noopLogger
       });
       expect(second.Advanced).toBe(false);
+      expect(second.DispatchMirrorMerge).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('sets DispatchMirrorMerge when advanced and notify enabled', () => {
+    const root = mkdtempSync(join(tmpdir(), 'msys2-apiss-mirror-sync-dispatch-'));
+    try {
+      const upstreamPath = join(root, 'upstream');
+      const mirrorPath = join(root, 'mirror');
+      const originPath = join(root, 'origin.git');
+
+      initRepo(upstreamPath);
+      writeFileSync(join(upstreamPath, 'pkg.txt'), 'pkg\n', 'utf8');
+      runGit(upstreamPath, ['add', 'pkg.txt']);
+      runGit(upstreamPath, ['commit', '-m', 'upstream package']);
+
+      runGit(null, ['init', '--bare', originPath]);
+      initRepo(mirrorPath);
+      runGit(mirrorPath, ['remote', 'add', 'origin', originPath]);
+
+      const result = runMirrorSync({
+        RepoPath: mirrorPath,
+        Config: mirrorConfig(upstreamPath, {
+          Notify: {
+            Enabled: true,
+            Repository: 'msys2-apiss/msys2-apiss-sync'
+          }
+        }),
+        Logger: noopLogger
+      });
+      expect(result.Advanced).toBe(true);
+      expect(result.DispatchMirrorMerge).toBe(true);
+      expect(result.Notify.EventType).toBe('workflow_dispatch_mirror_merge');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('writeGitHubOutput', () => {
+  test('writes dispatch_mirror_merge output', () => {
+    const root = mkdtempSync(join(tmpdir(), 'msys2-apiss-mirror-sync-output-'));
+    const outputPath = join(root, 'github-output.txt');
+    try {
+      writeGitHubOutput(outputPath, {
+        Advanced: true,
+        PrimarySha: 'abc123',
+        PrimaryRef: 'refs/heads/master',
+        DispatchMirrorMerge: true,
+        Notify: {
+          Enabled: true,
+          Repository: 'msys2-apiss/msys2-apiss-sync',
+          EventType: 'workflow_dispatch_mirror_merge'
+        },
+        Branches: []
+      });
+      const text = readFileSync(outputPath, 'utf8');
+      expect(text).toContain('dispatch_mirror_merge=true');
+      expect(text).toContain('notify_event_type=workflow_dispatch_mirror_merge');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

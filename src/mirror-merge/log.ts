@@ -1,5 +1,55 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { closeSync, mkdirSync, openSync, writeFileSync, writeSync } from 'node:fs';
+import { dirname, isAbsolute, join } from 'node:path';
+
+import type { Logger } from '../git/log.ts';
+
+export type { Logger } from '../git/log.ts';
+
+export function getWorkDirectory(repoRoot: string): string {
+  const work = join(repoRoot, '.work');
+  mkdirSync(work, { recursive: true });
+  return work;
+}
+
+export function setMirrorMergeUtf8Environment(): void {
+  process.env.LANG = 'C.UTF-8';
+  process.env.LC_ALL = 'C.UTF-8';
+}
+
+export function createMirrorMergeLogger(repoRoot: string, options: {
+  logFile?: string;
+  append?: boolean;
+  logToConsole?: boolean;
+} = {}): Logger {
+  const quietConsole = Boolean(options.logFile) && !options.logToConsole;
+  let fd: number | undefined;
+
+  if (options.logFile) {
+    const path = isAbsolute(options.logFile) ? options.logFile : join(repoRoot, options.logFile);
+    mkdirSync(dirname(path), { recursive: true });
+    fd = openSync(path, options.append ? 'a' : 'w');
+  }
+
+  return {
+    write(message, level = 'Info') {
+      const prefix =
+        level === 'Warn' ? '[mirror-merge][warn]' : level === 'Error' ? '[mirror-merge][error]' : '[mirror-merge]';
+      const line = `${prefix} ${message}`;
+      if (!quietConsole || level !== 'Info') {
+        console.log(line);
+      }
+      if (fd !== undefined) {
+        writeSync(fd, `${line}\n`, undefined, 'utf8');
+      }
+    },
+    close() {
+      if (fd !== undefined) {
+        closeSync(fd);
+        fd = undefined;
+      }
+    }
+  };
+}
 
 export function convertToUnixLineEndings(text: string | null | undefined): string {
   return (text ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
