@@ -10,6 +10,7 @@
     "sync": "node src/cli/sync-upstream.ts",
     "fetch-mirrors": "node src/cli/fetch-mirrors.ts",
     "mirror-poll": "node src/cli/mirror-poll.ts",
+    "mirror-sync": "node src/cli/mirror-sync.ts",
     "fix-mirror-sync": "node src/cli/fix-mirror-sync.ts",
     "retrieve-history": "node src/cli/retrieve-history.ts",
     "merge-queue": "node src/cli/merge-queue.ts",
