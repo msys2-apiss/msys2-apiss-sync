@@ -138,7 +138,7 @@ Rules:
 
 ## Stage one commit
 
-Same index logic as `yarn sync` (no destination commit unless
+Same index logic as `yarn mirror-merge` (no destination commit unless
 `--create-commit`):
 
 ```bash
@@ -319,7 +319,7 @@ yarn apply-mirror-patch --skip-fetch --source ports --commit <sha> --branch appl
 **`unable to normalize alternate object path`** - the destination clone's
 `.git/objects/info/alternates` still points at mirror paths from an old checkout
 location (for example after moving the repo from another directory). Re-run
-`apply-mirror-patch` or `yarn sync`; both refresh alternates to the current
+`apply-mirror-patch` or `yarn mirror-merge`; both refresh alternates to the current
 `.work/mirrors/` paths before touching the destination index.
 
 Check alternates:

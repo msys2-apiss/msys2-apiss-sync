@@ -342,13 +342,14 @@ export async function runMirrorMerge(input: MirrorMergeOptions): Promise<MirrorM
 export async function runMirrorMergeCli(): Promise<void> {
   setMirrorMergeUtf8Environment();
   const args = process.argv.slice(2);
+  const repoRoot = getSyncRepoRoot();
+  const config = loadSyncConfig(repoRoot);
+  const defaultDestinationPath = join('.work', 'destination', config.Destination.Repo);
   if (wantsHelp(args)) {
-    printMirrorMergeCliHelp();
+    printMirrorMergeCliHelp(defaultDestinationPath);
     return;
   }
 
-  const repoRoot = getSyncRepoRoot();
-  const config = loadSyncConfig(repoRoot);
   const logger = createMirrorMergeLogger(repoRoot, {
     logFile: readStringOption(args, '--log-file'),
     append: readFlag(args, '--log-append'),

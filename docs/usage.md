@@ -167,13 +167,13 @@ CI). No secrets on this repo.
 yarn fetch-mirrors
 yarn retrieve-history
 yarn merge-queue
-yarn sync --destination-path .work/destination/msys2-apiss
+yarn mirror-merge --destination-path .work/destination/msys2-apiss
 ```
 
 Or one step:
 
 ```bash
-yarn sync --destination-path .work/destination/msys2-apiss
+yarn mirror-merge --destination-path .work/destination/msys2-apiss
 ```
 
 Each script prints `[sync]` progress. Summary JSON is written under
@@ -184,7 +184,7 @@ Each script prints `[sync]` progress. Summary JSON is written under
 When mirrors already exist under `.work/mirrors/`:
 
 ```bash
-yarn sync --skip-fetch --destination-path .work/destination/msys2-apiss
+yarn mirror-merge --skip-fetch --destination-path .work/destination/msys2-apiss
 ```
 
 ### Resume after interrupt or failure
@@ -192,7 +192,7 @@ yarn sync --skip-fetch --destination-path .work/destination/msys2-apiss
 Re-run without `--clean`. Branch cursors in the destination clone hold progress.
 
 ```bash
-yarn sync --skip-fetch --destination-path .work/destination/msys2-apiss --log-file sync-run.log --log-append
+yarn mirror-merge --skip-fetch --destination-path .work/destination/msys2-apiss --log-file sync-run.log --log-append
 ```
 
 ### Bootstrap from scratch
@@ -200,7 +200,7 @@ yarn sync --skip-fetch --destination-path .work/destination/msys2-apiss --log-fi
 Reset sync branches and replay from history root:
 
 ```bash
-yarn sync --clean --destination-path .work/destination/msys2-apiss
+yarn mirror-merge --clean --destination-path .work/destination/msys2-apiss
 ```
 
 ### Verify replay manifest
@@ -218,7 +218,7 @@ Then:
 
 ```bash
 yarn fetch-mirrors --skip-fetch
-yarn sync --dry-run --skip-fetch --destination-path .work/destination/msys2-apiss
+yarn mirror-merge --dry-run --skip-fetch --destination-path .work/destination/msys2-apiss
 ```
 
 Details and log capture: [`run-local.md`](run-local.md#verify-replay-manifest).

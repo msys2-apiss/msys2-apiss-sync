@@ -6,7 +6,7 @@ Covers **Blocks 1-3** (init -> poll -> mirror-sync). Block 4 mirror-merge:
 [`plan-sync-merge.md`](plan-sync-merge.md).
 
 **Entry point:** a **local checkout** of `msys2-apiss/msys2-apiss-sync`. All operator
-commands (`yarn mirror-init`, `yarn mirror-poll`, `yarn sync`) run from here.
+commands (`yarn mirror-init`, `yarn mirror-poll`, `yarn mirror-merge`) run from here.
 
 | Entry | Where it runs | Block |
 |-------|---------------|-------|
@@ -130,7 +130,7 @@ For each `Branches[]` entry in mirror config:
 
 Block 3 ends after mirror `master` push. **Package mirrors** with `Notify.Enabled` dispatch
 Block 4 CI on tooling repo ([`mirror-merge.yml`](../config/mirror-template/mirror-merge.yml)
-on branch `msys2-apiss-mirror-merge`). Local Block 4: `yarn sync`; see
+on branch `msys2-apiss-mirror-merge`). Local Block 4: `yarn mirror-merge`; see
 [`plan-sync-merge.md`](plan-sync-merge.md).
 
 **Reuse local clone:** do not delete `.work/mirrors/<repo>` when only `msys2-apiss-mirror-sync`
@@ -249,7 +249,7 @@ in-progress run skip, default-branch dance for first dispatch.
 | Others in `Mirrors.Repos` | per `config/mirror-sync/*.json` | per `Notify.Enabled` |
 
 Package mirrors feed Block 4 mirror-merge; others do not. After Blocks 1-3, run Block 4 from
-the same **`msys2-apiss-sync`** checkout (`yarn sync --skip-fetch`).
+the same **`msys2-apiss-sync`** checkout (`yarn mirror-merge --skip-fetch`).
 
 ---
 
@@ -290,6 +290,6 @@ All commands below run from a **local checkout** of `msys2-apiss/msys2-apiss-syn
 | Poll only (Block 2) | `yarn mirror-poll` |
 | Scheduled poll (CI, no local machine) | `mirror-poll.yml` on GitHub |
 | Mirror-merge CI (Block 4) | `workflow_dispatch_mirror_merge` from Block 3 or `gh workflow run mirror-merge.yml --repo msys2-apiss/msys2-apiss-sync --ref msys2-apiss-mirror-merge` |
-| Mirror-merge local (Block 4) | `yarn sync [--skip-fetch]` |
+| Mirror-merge local (Block 4) | `yarn mirror-merge [--skip-fetch]` |
 | Fix config branch layout | `yarn fix-mirror-sync [--skip-fetch] [--push]` |
 | Block 3 direct (bypass poll) | `gh workflow run mirror-sync.yml --repo msys2-apiss/<name> --ref msys2-apiss-mirror-sync` |

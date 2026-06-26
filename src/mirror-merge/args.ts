@@ -6,15 +6,15 @@ export function wantsHelp(args: string[]): boolean {
   return args.includes('--help') || args.includes('-h');
 }
 
-export function printMirrorMergeCliHelp(): void {
-  console.log(`Usage: yarn sync [options]
+export function printMirrorMergeCliHelp(defaultDestinationPath: string): void {
+  console.log(`Usage: yarn mirror-merge [options]
 
 Options:
   --clean                   Reset destination sync branches before replay
   --dry-run                 Replay locally without pushing
   --skip-fetch              Skip mirror and destination fetch
   --max-commits <n>         Limit replay to n queue entries (0 = no limit)
-  --destination-path <path> Destination clone path
+  --destination-path <path> Destination clone path (default: ${defaultDestinationPath})
   --log-file <path>         Write log to file
   --log-append              Append to log file
   --log-to-console          Also print log lines to stdout

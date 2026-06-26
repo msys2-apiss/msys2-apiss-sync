@@ -42,7 +42,7 @@ Requires a destination clone (read-only is enough):
 ```bash
 git clone https://github.com/msys2-apiss/msys2-apiss.git .work/destination/msys2-apiss
 yarn fetch-mirrors --skip-fetch
-yarn sync --dry-run --skip-fetch --destination-path .work/destination/msys2-apiss
+yarn mirror-merge --dry-run --skip-fetch --destination-path .work/destination/msys2-apiss
 ```
 
 Exit 0: no mismatch. Non-zero: inspect `[sync]` output and [`PLAN.md`](PLAN.md)
@@ -53,8 +53,8 @@ recovery steps.
 Replay locally without push:
 
 ```bash
-yarn sync --dry-run --skip-fetch --max-commits 5
-yarn sync --skip-fetch --max-commits 10 --destination-path .work/destination/msys2-apiss
+yarn mirror-merge --dry-run --skip-fetch --max-commits 5
+yarn mirror-merge --skip-fetch --max-commits 10 --destination-path .work/destination/msys2-apiss
 ```
 
 ## Log capture
@@ -64,6 +64,6 @@ print. Each run truncates the log unless you pass `--log-append`. Use paths unde
 `.work/cache/replay-log/`, not repo-root files (`out.txt`, `msys.txt`).
 
 ```bash
-yarn sync --dry-run --skip-fetch --log-file .work/cache/replay-log/sync-dryrun.log
-yarn sync --dry-run --skip-fetch --max-commits 5 --log-file .work/cache/replay-log/sync-dryrun.log
+yarn mirror-merge --dry-run --skip-fetch --log-file .work/cache/replay-log/sync-dryrun.log
+yarn mirror-merge --dry-run --skip-fetch --max-commits 5 --log-file .work/cache/replay-log/sync-dryrun.log
 ```

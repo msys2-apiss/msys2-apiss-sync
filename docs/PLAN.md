@@ -8,7 +8,7 @@ This repo implements two pipelines. Each has its own plan document:
 | Plan | Target | Entry commands |
 |------|--------|----------------|
 | [**Workflow (center)**](plan-workflow.md) | Blocks 0-4, repos, CI boundaries | See operator flows table |
-| [**Mirror-merge**](plan-sync-merge.md) | [msys2-apiss/msys2-apiss](https://github.com/msys2-apiss/msys2-apiss) destination | `yarn sync` (Block 4 local); `mirror-merge.yml` CI on `msys2-apiss-mirror-merge` |
+| [**Mirror-merge**](plan-sync-merge.md) | [msys2-apiss/msys2-apiss](https://github.com/msys2-apiss/msys2-apiss) destination | `yarn mirror-merge` (Block 4 local); `mirror-merge.yml` CI on `msys2-apiss-mirror-merge` |
 | [**Mirror-init / mirror-poll**](plan-mirror-init.md) | Mirror repos + tooling workflow branches | Block 1: `yarn mirror-init`; Block 2: `mirror-poll.yml`; Block 3: mirror `mirror-sync.yml` |
 
 End-to-end flow: Block 0 (config URL) -> **Block 1** init -> **Block 2** poll (via
@@ -153,7 +153,7 @@ upstream tips.
 ## Sync entry point
 
 [`src/cli/sync-upstream.ts`](../src/cli/sync-upstream.ts) -- sole entry, no wrappers.
-Invoked as `yarn sync` (runs `node src/cli/sync-upstream.ts`). Copy-paste commands:
+Invoked as `yarn mirror-merge` (runs `node src/cli/sync-upstream.ts`). Copy-paste commands:
 [`usage.md`](usage.md) (operational), [`run-local.md`](run-local.md) (testing).
 
 | Flag | Purpose |

@@ -23,7 +23,7 @@ repo/block/CI changes.
 
 | In scope | Out of scope |
 |----------|----------------|
-| `yarn sync` / `src/cli/sync-upstream.ts` (Block 4 local) | Cloning or updating mirror repos (Block 1) |
+| `yarn mirror-merge` / `src/cli/sync-upstream.ts` (Block 4 local) | Cloning or updating mirror repos (Block 1) |
 | [`mirror-merge.yml`](../config/mirror-template/mirror-merge.yml) on tooling branch **`msys2-apiss-mirror-merge`** (Block 4 CI; installed by Block 1) | Block 2 poll; Block 3 mirror-sync |
 | Destination branches on `msys2-apiss/msys2-apiss` | Workflows on destination repo |
 | Retrieve, merge-queue, replay | Workflows on mirror content branches |
@@ -36,7 +36,7 @@ repo/block/CI changes.
 - **Minimal git surface:** read history, update index, commit, update refs, push.
   TypeScript wraps `git` only (see [`PLAN.md`](PLAN.md) for algorithm).
 - **Block 4 entry points:**
-  - **Local:** `yarn sync` from tooling checkout
+  - **Local:** `yarn mirror-merge` from tooling checkout
   - **CI:** [`mirror-merge.yml`](../config/mirror-template/mirror-merge.yml) on tooling repo
     branch **`msys2-apiss-mirror-merge`** (installed by Block 1); triggered by Block 3
     `workflow_dispatch_mirror_merge`, cron, or manual dispatch
@@ -62,7 +62,7 @@ Sync behavior is derived from **destination branch presence**:
 
 No checkpoint file. Resume state lives in these three branches only.
 
-**Resume:** re-run `yarn sync` or Block 4 CI without `--clean`. Parse mirror cursors from
+**Resume:** re-run `yarn mirror-merge` or Block 4 CI without `--clean`. Parse mirror cursors from
 cursor-branch commit footers; rebuild merged queue from cursors to mirror tips.
 
 **On failure:** local destination clone branch tips are the resume point; no push.
@@ -73,7 +73,7 @@ Tests: `tests/sync/resume.test.ts`, `tests/sync/cursor-branch.test.ts`.
 
 ## Entry point
 
-[`src/cli/sync-upstream.ts`](../src/cli/sync-upstream.ts) -- `yarn sync` (Block 4 local).
+[`src/cli/sync-upstream.ts`](../src/cli/sync-upstream.ts) -- `yarn mirror-merge` (Block 4 local).
 
 CI: [`mirror-merge.yml`](../config/mirror-template/mirror-merge.yml) on branch
 **`msys2-apiss-mirror-merge`** -- same CLI, runs on GitHub Actions.
@@ -88,7 +88,7 @@ CI: [`mirror-merge.yml`](../config/mirror-template/mirror-merge.yml) on branch
 
 ```mermaid
 flowchart TD
-  start[yarn sync or mirror-merge.yml CI] --> clean{--clean?}
+  start[yarn mirror-merge or mirror-merge.yml CI] --> clean{--clean?}
   clean -->|yes| reset[Reset 3 branches]
   clean -->|no| readRefs[Read branch SHAs]
   reset --> readRefs
@@ -126,9 +126,9 @@ Repo/block/CI map and operator flows: [`plan-workflow.md`](plan-workflow.md).
 
 | Task | Command |
 |------|---------|
-| Block 4 local | `yarn sync [--skip-fetch]` |
+| Block 4 local | `yarn mirror-merge [--skip-fetch]` |
 | Block 4 CI (after Block 3 dispatch) | `gh workflow run mirror-merge.yml --repo msys2-apiss/msys2-apiss-sync --ref msys2-apiss-mirror-merge` |
-| Reset replay | `yarn sync --clean` or CI `clean=true` |
+| Reset replay | `yarn mirror-merge --clean` or CI `clean=true` |
 
 ---
 
