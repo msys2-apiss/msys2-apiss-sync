@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -6,27 +6,30 @@ import {
   MIRROR_MERGE_BRANCH,
   type SyncConfig
 } from './config.ts';
+import {
+  fetchOriginBranchOptional,
+  fetchRemoteBranchGraph,
+  firstCommitOfBranch,
+  isToolingLayoutValid,
+  refExists
+} from './layout.ts';
 import { ghRemoteHasBranch, ghRepoClone } from '../git/gh.ts';
 import { runGit, runGitText } from '../git/index.ts';
 import type { Logger } from '../git/log.ts';
 
-function refExists(repoPath: string, ref: string): boolean {
+const MIRROR_MERGE_COMMIT_MESSAGE =
+  'Install mirror-merge workflow from msys2-apiss-sync template';
+
+function mergeWorkflowMatchesTemplate(repoPath: string, templatePath: string): boolean {
   try {
-    runGitText(repoPath, ['rev-parse', '--verify', ref]);
-    return true;
+    const remote = runGitText(repoPath, [
+      'show',
+      `${MIRROR_MERGE_BRANCH}:.github/workflows/mirror-merge.yml`
+    ]);
+    return remote.replace(/\r\n/g, '\n') === readFileSync(templatePath, 'utf8').replace(/\r\n/g, '\n');
   } catch {
     return false;
   }
-}
-
-function workflowFileMatchesTemplate(repoPath: string, templatePath: string): boolean {
-  const installed = join(repoPath, '.github', 'workflows', 'mirror-merge.yml');
-  if (!existsSync(installed)) {
-    return false;
-  }
-  const left = readFileSync(installed, 'utf8').replace(/\r\n/g, '\n');
-  const right = readFileSync(templatePath, 'utf8').replace(/\r\n/g, '\n');
-  return left === right;
 }
 
 export function installMirrorMergeWorkflow(input: {
@@ -38,6 +41,7 @@ export function installMirrorMergeWorkflow(input: {
 }): boolean {
   const owner = input.Config.Owner;
   const repo = input.Config.Destination.Repo;
+  const defaultBranch = input.Config.Destination.DefaultBranch ?? 'main';
   const templatePath = getMirrorMergeWorkflowTemplatePath(input.RepoRoot);
   if (!existsSync(templatePath)) {
     throw new Error(`Missing mirror-merge template: ${templatePath}`);
@@ -47,46 +51,37 @@ export function installMirrorMergeWorkflow(input: {
   if (!existsSync(repoPath)) {
     ghRepoClone(owner, repo, repoPath, input.Logger);
   } else {
-    input.Logger.write(`Using existing ${repoPath}`);
     runGit(repoPath, ['fetch', 'origin', '--prune'], {}, 5, input.Logger);
   }
 
-  const originBranch = `origin/${MIRROR_MERGE_BRANCH}`;
-  if (refExists(repoPath, originBranch)) {
-    runGit(repoPath, ['checkout', '-B', MIRROR_MERGE_BRANCH, originBranch], {}, 5, input.Logger);
-  } else if (refExists(repoPath, MIRROR_MERGE_BRANCH)) {
-    runGit(repoPath, ['checkout', MIRROR_MERGE_BRANCH], {}, 5, input.Logger);
-  } else {
-    input.Logger.write(`Creating local ${MIRROR_MERGE_BRANCH} branch`);
-    runGit(repoPath, ['checkout', '--orphan', MIRROR_MERGE_BRANCH], {}, 5, input.Logger);
-    runGit(repoPath, ['rm', '-rf', '--ignore-unmatch', '.'], {}, 5, input.Logger);
+  fetchRemoteBranchGraph(repoPath, 'origin', defaultBranch, input.Logger);
+  fetchOriginBranchOptional(repoPath, MIRROR_MERGE_BRANCH, input.Logger);
+
+  const originDefault = `origin/${defaultBranch}`;
+  if (!refExists(repoPath, originDefault)) {
+    throw new Error(`Cannot install ${MIRROR_MERGE_BRANCH}: missing ${originDefault}`);
   }
 
-  if (workflowFileMatchesTemplate(repoPath, templatePath)) {
+  if (
+    isToolingLayoutValid(repoPath, originDefault, MIRROR_MERGE_BRANCH) &&
+    mergeWorkflowMatchesTemplate(repoPath, templatePath)
+  ) {
     input.Logger.write(`${owner}/${repo}: ${MIRROR_MERGE_BRANCH} workflow already matches template`);
     return false;
   }
 
+  const root = firstCommitOfBranch(repoPath, originDefault);
+  runGit(repoPath, ['checkout', '-B', MIRROR_MERGE_BRANCH, root], {}, 5, input.Logger);
   const workflowsDir = join(repoPath, '.github', 'workflows');
   mkdirSync(workflowsDir, { recursive: true });
   copyFileSync(templatePath, join(workflowsDir, 'mirror-merge.yml'));
   runGit(repoPath, ['add', '.github/workflows/mirror-merge.yml'], {}, 5, input.Logger);
-
-  if (runGitText(repoPath, ['status', '--porcelain']).trim()) {
-    runGit(
-      repoPath,
-      ['commit', '-m', 'Install mirror-merge workflow from msys2-apiss-sync template'],
-      {},
-      5,
-      input.Logger
-    );
-    input.Logger.write(`Updated ${MIRROR_MERGE_BRANCH} workflow on ${owner}/${repo}`);
-  }
+  runGit(repoPath, ['commit', '-m', MIRROR_MERGE_COMMIT_MESSAGE], {}, 5, input.Logger);
+  input.Logger.write(`Updated ${MIRROR_MERGE_BRANCH} workflow on ${owner}/${repo}`);
 
   if (!input.Push) {
     return true;
   }
-
   if (!ghRemoteHasBranch(owner, repo, MIRROR_MERGE_BRANCH)) {
     runGit(repoPath, ['push', '-u', 'origin', MIRROR_MERGE_BRANCH], {}, 5, input.Logger);
   } else {

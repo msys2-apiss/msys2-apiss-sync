@@ -4,6 +4,7 @@
   "Destination": {
     "Repo": "msys2-apiss",
     "BaseCommit": "6fc20894663468a04dd4986a8b1c15a9d5ae8649",
+    "DefaultBranch": "main",
     "ReplayTip": "upstream"
   },
   "Sources": [

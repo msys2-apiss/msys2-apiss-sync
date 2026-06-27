@@ -4,7 +4,13 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { describe, expect, test } from 'vitest';
 
-import { applyMirrorSyncTemplate, bootstrapMirrorFromUpstreamRoot, MIRROR_SYNC_BRANCH, pushMirrorContentBranch, repairSyncBranchLayout } from '../../src/mirror-init/repos.ts';
+import { MIRROR_SYNC_BRANCH } from '../../src/mirror-init/config.ts';
+import {
+  applyMirrorSyncTemplate,
+  bootstrapMirrorFromUpstreamRoot,
+  pushMirrorContentBranch,
+  repairSyncBranchLayout
+} from '../../src/mirror-init/mirror.ts';
 import { checkoutDestinationReplayBranch } from '../../src/mirror-merge/repos.ts';
 import {
   checkoutNewDestinationBranchFromBase,

@@ -9,6 +9,8 @@ export interface SyncConfig {
   Destination: {
     Repo: string;
     Url?: string;
+    DefaultBranch?: string;
+    ReplayTip?: string;
   };
   Mirrors: {
     Repos: string[];

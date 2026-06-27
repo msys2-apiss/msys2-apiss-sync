@@ -104,6 +104,29 @@ export function ghGetBranchSha(owner: string, repoName: string, branch: string):
   return result.stdout || null;
 }
 
+export function ghSetRepoDefaultBranch(
+  owner: string,
+  repoName: string,
+  branch: string,
+  logger: Logger
+): void {
+  logger.write(`Setting default branch of ${owner}/${repoName} to ${branch}`);
+  const result = runGh([
+    'api',
+    `repos/${owner}/${repoName}`,
+    '-X',
+    'PATCH',
+    '-f',
+    `default_branch=${branch}`
+  ]);
+  if (!result.ok) {
+    throw new Error(
+      `Failed to set default branch for ${owner}/${repoName}: ` +
+        (result.stderr || result.stdout || 'unknown error')
+    );
+  }
+}
+
 function ghMirrorSyncRunInProgress(owner: string, repoName: string): boolean | null {
   const result = runGh([
     'run',

@@ -1,3 +1,6 @@
+import { spawnSync } from 'node:child_process';
+import { join } from 'node:path';
+
 import { printMirrorInitCliHelp, readFlag, readStringOption, wantsHelp } from './args.ts';
 import {
   getMirrorContentBranch,
@@ -9,13 +12,18 @@ import {
   MIRROR_SYNC_BRANCH
 } from './config.ts';
 import { installMirrorMergeWorkflow } from './destination.ts';
-import { ghDispatchMirrorSyncWorkflow, ghRepoCreate, requireGhAuthenticated } from '../git/gh.ts';
 import {
   initializeNamedMirrorRepository,
   mirrorOriginHasContent,
   pushMirrorContentBranch,
   pushMirrorSyncBranch
-} from './repos.ts';
+} from './mirror.ts';
+import {
+  ghDispatchMirrorSyncWorkflow,
+  ghRepoCreate,
+  ghSetRepoDefaultBranch,
+  requireGhAuthenticated
+} from '../git/gh.ts';
 import { runGitText } from '../git/index.ts';
 import type { Logger } from '../git/log.ts';
 import { WORKFLOW_DISPATCH_MIRROR_SYNC } from '../types/constants.ts';
@@ -29,10 +37,6 @@ function createLogger(): Logger {
     },
     close() {}
   };
-}
-
-function getBranchTip(mirrorPath: string, branch: string): string {
-  return runGitText(mirrorPath, ['rev-parse', branch]).trim();
 }
 
 function dispatchMirrorSyncAfterPush(owner: string, repoName: string, logger: Logger): void {
@@ -60,20 +64,20 @@ function dispatchMirrorSyncAfterPush(owner: string, repoName: string, logger: Lo
   throw new Error(`${WORKFLOW_DISPATCH_MIRROR_SYNC} failed for ${owner}/${repoName}${suffix}`);
 }
 
-async function pushMirrorRepo(input: {
+function pushMirrorRepo(input: {
   RepoRoot: string;
   RepoName: string;
   MirrorPath: string;
   ContentBranch: string;
   Config: ReturnType<typeof loadSyncConfig>;
   Logger: Logger;
-}): Promise<void> {
+}): void {
+  const owner = input.Config.Owner;
   const mirrorConfig = loadMirrorSyncConfigFile(input.RepoRoot, input.RepoName);
-  const isNewMirror = !mirrorOriginHasContent(input.Config.Owner, input.RepoName, input.ContentBranch);
-  if (isNewMirror) {
+  if (!mirrorOriginHasContent(owner, input.RepoName, input.ContentBranch)) {
     input.Logger.write(`${input.RepoName}: new mirror; ensuring GitHub repo exists`);
     ghRepoCreate({
-      Owner: input.Config.Owner,
+      Owner: owner,
       RepoName: input.RepoName,
       Description: mirrorConfig?.Description,
       Url: mirrorConfig?.Url,
@@ -82,6 +86,24 @@ async function pushMirrorRepo(input: {
   }
   pushMirrorContentBranch(input.MirrorPath, input.ContentBranch, input.RepoName, input.Logger);
   pushMirrorSyncBranch(input.MirrorPath, input.RepoName, input.Logger);
+  ghSetRepoDefaultBranch(owner, input.RepoName, MIRROR_SYNC_BRANCH, input.Logger);
+  try {
+    dispatchMirrorSyncAfterPush(owner, input.RepoName, input.Logger);
+  } finally {
+    ghSetRepoDefaultBranch(owner, input.RepoName, input.ContentBranch, input.Logger);
+  }
+}
+
+function runMirrorPollAfterPush(repoRoot: string, logger: Logger): void {
+  logger.write('Running yarn mirror-poll after push');
+  const result = spawnSync(process.execPath, [join(repoRoot, 'src/mirror-poll/cli.ts')], {
+    cwd: repoRoot,
+    stdio: 'inherit',
+    env: process.env
+  });
+  if (result.status !== 0) {
+    throw new Error(`mirror-poll exited with code ${result.status ?? 'unknown'}`);
+  }
 }
 
 export async function runMirrorInit(input: {
@@ -91,7 +113,6 @@ export async function runMirrorInit(input: {
 }): Promise<void> {
   process.env.LANG = 'C.UTF-8';
   process.env.LC_ALL = 'C.UTF-8';
-
   if (input.Push) {
     requireGhAuthenticated();
   }
@@ -100,12 +121,19 @@ export async function runMirrorInit(input: {
   const config = loadSyncConfig(repoRoot);
   const work = getWorkDirectory(repoRoot);
   const logger = createLogger();
-
   logger.write('start');
 
   if (input.RepoFilter && !getMirrorPollRepoNames(config).includes(input.RepoFilter)) {
     throw new Error(`Unknown mirror repo: ${input.RepoFilter}`);
   }
+
+  installMirrorMergeWorkflow({
+    RepoRoot: repoRoot,
+    WorkDirectory: work,
+    Config: config,
+    Push: Boolean(input.Push),
+    Logger: logger
+  });
 
   for (const repoName of getMirrorPollRepoNames(config)) {
     if (input.RepoFilter && input.RepoFilter !== repoName) {
@@ -121,7 +149,7 @@ export async function runMirrorInit(input: {
       Logger: logger
     });
     if (input.Push) {
-      await pushMirrorRepo({
+      pushMirrorRepo({
         RepoRoot: repoRoot,
         RepoName: repoName,
         MirrorPath: mirrorPath,
@@ -129,21 +157,17 @@ export async function runMirrorInit(input: {
         Config: config,
         Logger: logger
       });
-      dispatchMirrorSyncAfterPush(config.Owner, repoName, logger);
     }
-    const syncTip = getBranchTip(mirrorPath, MIRROR_SYNC_BRANCH);
-    const tip = getBranchTip(mirrorPath, contentBranch);
-    logger.write(`${repoName}: ${mirrorPath} (msys2-apiss-mirror-sync=${syncTip.slice(0, 8)}, ${contentBranch}=${tip.slice(0, 8)})`);
+    const syncTip = runGitText(mirrorPath, ['rev-parse', MIRROR_SYNC_BRANCH]).trim();
+    const tip = runGitText(mirrorPath, ['rev-parse', contentBranch]).trim();
+    logger.write(
+      `${repoName}: ${mirrorPath} (msys2-apiss-mirror-sync=${syncTip.slice(0, 8)}, ${contentBranch}=${tip.slice(0, 8)})`
+    );
   }
 
-  installMirrorMergeWorkflow({
-    RepoRoot: repoRoot,
-    WorkDirectory: work,
-    Config: config,
-    Push: Boolean(input.Push),
-    Logger: logger
-  });
-
+  if (input.Push) {
+    runMirrorPollAfterPush(repoRoot, logger);
+  }
   logger.write('done');
 }
 
@@ -153,7 +177,6 @@ export async function runMirrorInitCli(): Promise<void> {
     printMirrorInitCliHelp();
     return;
   }
-
   const logger = createLogger();
   try {
     await runMirrorInit({
