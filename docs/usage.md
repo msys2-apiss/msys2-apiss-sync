@@ -6,7 +6,7 @@ Pipeline: `msys2/*` upstream -> `msys2-apiss/*` mirrors -> `msys2-apiss/msys2-ap
 on branches `upstream`, `upstream-ports`, `upstream-ports-mingw`.
 
 Local testing and debugging: [`run-local.md`](run-local.md). Design and flags:
-[`PLAN.md`](PLAN.md).
+[`PLAN.md`](PLAN.md). Block 1: [`mirror-init.md`](mirror-init.md).
 
 ## GitHub (`gh`)
 
@@ -169,8 +169,9 @@ yarn mirror-poll
 local `msys2-apiss-sync` differs from `origin/msys2-apiss-sync`. Requires push access to `msys2-apiss/*`
 mirror repos.
 
-`yarn mirror-poll` and `yarn fetch-mirrors --push` dispatch `mirror-sync` and
-restore the mirror default branch via `gh` (`gh auth login` locally; in CI
+`yarn mirror-poll` compares upstream tips and dispatches Block 3 when behind.
+`yarn mirror-init --push` pushes mirror branches and dispatches Block 3 directly
+(no tip comparison). Both use `gh` (`gh auth login` locally; in CI
 [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml) uses `SYNC_DISPATCH_TOKEN`
 when set).
 

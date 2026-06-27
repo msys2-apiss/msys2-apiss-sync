@@ -10,7 +10,8 @@ and [msys2-apiss/MINGW-packages](https://github.com/msys2-apiss/MINGW-packages) 
 
 **All tooling code lives in this repo** (`msys2-apiss-sync`). Sync orchestrates **git
 subprocesses only** (no libgit2, no destination-repo workflows). Mirror refresh
-(Blocks 1-3) is in [`plan-mirror-init.md`](plan-mirror-init.md).
+(Blocks 1-3) is in [`mirror-init.md`](mirror-init.md) (Block 1) and
+[`plan-workflow.md`](plan-workflow.md) (Blocks 2-3).
 
 Ops: [`usage.md`](usage.md). Local testing: [`run-local.md`](run-local.md).
 

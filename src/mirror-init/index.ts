@@ -1,6 +1,3 @@
-import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
-
 import { printMirrorInitCliHelp, readFlag, readStringOption, wantsHelp } from './args.ts';
 import {
   getMirrorContentBranch,
@@ -12,7 +9,7 @@ import {
   MIRROR_SYNC_BRANCH
 } from './config.ts';
 import { installMirrorMergeWorkflow } from './destination.ts';
-import { ghRepoCreate, requireGhAuthenticated } from '../git/gh.ts';
+import { ghDispatchMirrorSyncWorkflow, ghRepoCreate, requireGhAuthenticated } from '../git/gh.ts';
 import {
   initializeNamedMirrorRepository,
   mirrorOriginHasContent,
@@ -21,6 +18,7 @@ import {
 } from './repos.ts';
 import { runGitText } from '../git/index.ts';
 import type { Logger } from '../git/log.ts';
+import { WORKFLOW_DISPATCH_MIRROR_SYNC } from '../types/constants.ts';
 
 function createLogger(): Logger {
   return {
@@ -37,30 +35,29 @@ function getBranchTip(mirrorPath: string, branch: string): string {
   return runGitText(mirrorPath, ['rev-parse', branch]).trim();
 }
 
-function runMirrorPollSubprocess(repoRoot: string, logger: Logger, repoFilter?: string): void {
-  const pollCli = join(repoRoot, 'src', 'mirror-poll', 'cli.ts');
-  const pollArgs = [pollCli];
-  if (repoFilter) {
-    pollArgs.push('--repo', repoFilter);
+function dispatchMirrorSyncAfterPush(owner: string, repoName: string, logger: Logger): void {
+  logger.write(`Dispatching ${WORKFLOW_DISPATCH_MIRROR_SYNC} on ${owner}/${repoName}`);
+  const result = ghDispatchMirrorSyncWorkflow(owner, repoName, logger);
+  if (result.ok) {
+    logger.write(`dispatched ${owner}/${repoName}`);
+    return;
   }
-  logger.write('Running mirror-poll after push');
-  const result = spawnSync(process.execPath, pollArgs, {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true
-  });
-  if (result.stdout) {
-    for (const line of result.stdout.split(/\r?\n/)) {
-      if (line) {
-        logger.write(line);
-      }
-    }
+  if (result.skipped) {
+    return;
   }
-  if (result.status !== 0) {
-    const detail = (result.stderr || result.stdout || '').trim();
-    throw new Error(detail || 'mirror-poll failed');
+  if (result.notFound) {
+    throw new Error(
+      `${WORKFLOW_DISPATCH_MIRROR_SYNC} failed for ${owner}/${repoName}: mirror-sync.yml not found`
+    );
   }
+  if (result.forbidden) {
+    throw new Error(
+      `${WORKFLOW_DISPATCH_MIRROR_SYNC} failed for ${owner}/${repoName} (403): ` +
+        'gh cannot dispatch mirror-sync; check gh auth or SYNC_DISPATCH_TOKEN'
+    );
+  }
+  const suffix = result.detail ? `: ${result.detail}` : '';
+  throw new Error(`${WORKFLOW_DISPATCH_MIRROR_SYNC} failed for ${owner}/${repoName}${suffix}`);
 }
 
 async function pushMirrorRepo(input: {
@@ -132,6 +129,7 @@ export async function runMirrorInit(input: {
         Config: config,
         Logger: logger
       });
+      dispatchMirrorSyncAfterPush(config.Owner, repoName, logger);
     }
     const syncTip = getBranchTip(mirrorPath, MIRROR_SYNC_BRANCH);
     const tip = getBranchTip(mirrorPath, contentBranch);
@@ -145,10 +143,6 @@ export async function runMirrorInit(input: {
     Push: Boolean(input.Push),
     Logger: logger
   });
-
-  if (input.Push) {
-    runMirrorPollSubprocess(repoRoot, logger, input.RepoFilter);
-  }
 
   logger.write('done');
 }
