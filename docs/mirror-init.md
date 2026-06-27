@@ -158,27 +158,27 @@ without it, in order):
 - Push **`msys2-apiss-mirror-sync`** to `origin` ([Tooling branch layout](#tooling-branch-layout)).
 - Set GitHub **default branch** to **`msys2-apiss-mirror-sync`** (so `mirror-sync.yml` is registered):
 
-```bash
-gh api repos/msys2-apiss/<repo> -X PATCH -f default_branch=msys2-apiss-mirror-sync
-```
+  ```bash
+  gh api repos/msys2-apiss/<repo> -X PATCH -f default_branch=msys2-apiss-mirror-sync
+  ```
 
 - **Dispatch Block 3** for that mirror (always after push; no tip comparison):
 
-```bash
-gh workflow run mirror-sync.yml \
-  --repo msys2-apiss/<repo> \
-  --ref msys2-apiss-mirror-sync \
-  -f event_type=workflow_dispatch_mirror_sync
-```
+  ```bash
+  gh workflow run mirror-sync.yml \
+    --repo msys2-apiss/<repo> \
+    --ref msys2-apiss-mirror-sync \
+    -f event_type=workflow_dispatch_mirror_sync
+  ```
 
 - Skip dispatch only when a `mirror-sync` run is already in progress on that repo.
 - Does **not** wait for the run to finish.
 - **Restore default branch** to the mirror **content branch** (`master` or configured
   `Branches[].Mirror`) after dispatch, whether dispatch succeeded, was skipped, or failed:
 
-```bash
-gh api repos/msys2-apiss/<repo> -X PATCH -f default_branch=master
-```
+  ```bash
+  gh api repos/msys2-apiss/<repo> -X PATCH -f default_branch=master
+  ```
 
 Replace `master` with the configured content branch when different.
 
