@@ -246,7 +246,14 @@ export function ghDispatchMirrorBlock(
     }
     throwMirrorBlockDispatchFailure(owner, repoName, spec, result, options?.ForbiddenDetail);
   } finally {
-    ghSetRepoDefaultBranch(owner, repoName, defaultBranch, logger);
+    if (ghRemoteHasBranch(owner, repoName, defaultBranch)) {
+      ghSetRepoDefaultBranch(owner, repoName, defaultBranch, logger);
+    } else {
+      logger.write(
+        `${repoName}: ${defaultBranch} not on origin yet; leaving default branch unchanged`,
+        'Warn'
+      );
+    }
   }
 }
 

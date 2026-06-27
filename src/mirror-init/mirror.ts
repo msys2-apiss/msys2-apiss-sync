@@ -244,7 +244,10 @@ function ensureMirrorSyncBranch(mirrorPath: string, contentBranch: string, logge
     Logger: logger
   });
   const defaultRef = defaultBranchRef(mirrorPath, contentBranch);
-  if (!isToolingLayoutValid(mirrorPath, defaultRef, MIRROR_SYNC_BRANCH)) {
+  if (
+    !isToolingLayoutValid(mirrorPath, defaultRef, MIRROR_SYNC_BRANCH) &&
+    existsSync(join(mirrorPath, '.github'))
+  ) {
     repairSyncBranchLayout(mirrorPath, contentBranch, logger, { Force: true });
   }
 }
@@ -289,8 +292,12 @@ export function initializeNamedMirrorRepository(input: {
     }
   } else if (!input.SkipFetch) {
     assertWorkingCopyMirror(mirrorPath);
-    input.Logger.write(`Fetching mirror working copy ${input.RepoName}`);
-    runGit(mirrorPath, ['fetch', 'origin', '--prune'], {}, 5, input.Logger);
+    if (mirrorOriginHasContent(owner, input.RepoName, input.ContentBranch)) {
+      input.Logger.write(`Fetching mirror working copy ${input.RepoName}`);
+      runGit(mirrorPath, ['fetch', 'origin', '--prune'], {}, 5, input.Logger);
+    } else {
+      input.Logger.write(`${input.RepoName}: origin has no content yet; skipping origin fetch`);
+    }
   } else {
     assertWorkingCopyMirror(mirrorPath);
   }
