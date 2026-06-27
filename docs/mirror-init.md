@@ -156,13 +156,9 @@ without it, in order):
 - Ensure GitHub repo exists (`gh repo create` when origin is empty).
 - Push **content branch** to `origin`.
 - Push **`msys2-apiss-mirror-sync`** to `origin` ([Tooling branch layout](#tooling-branch-layout)).
-- Set GitHub **default branch** to **`msys2-apiss-mirror-sync`** (so `mirror-sync.yml` is registered):
-
-  ```bash
-  gh api repos/msys2-apiss/<repo> -X PATCH -f default_branch=msys2-apiss-mirror-sync
-  ```
-
-- **Dispatch Block 3** for that mirror (always after push; no tip comparison):
+- **Dispatch Block 3** for that mirror (always after push; no tip comparison). When
+  `mirror-sync.yml` is not registered yet, briefly set default branch to
+  **`msys2-apiss-mirror-sync`**, dispatch, then restore default to the content branch:
 
   ```bash
   gh workflow run mirror-sync.yml \
@@ -173,14 +169,6 @@ without it, in order):
 
 - Skip dispatch only when a `mirror-sync` run is already in progress on that repo.
 - Does **not** wait for the run to finish.
-- **Restore default branch** to the mirror **content branch** (`master` or configured
-  `Branches[].Mirror`) after dispatch, whether dispatch succeeded, was skipped, or failed:
-
-  ```bash
-  gh api repos/msys2-apiss/<repo> -X PATCH -f default_branch=master
-  ```
-
-Replace `master` with the configured content branch when different.
 
 #### Mirror-poll (once, after all mirrors)
 
@@ -204,13 +192,13 @@ Per-mirror dispatch (above) and mirror-poll dispatch are **both** required steps
 Per mirror after push ([Tooling branch layout](#tooling-branch-layout) on **`msys2-apiss-mirror-sync`**):
 
 ```bash
-gh api repos/msys2-apiss/<repo> -X PATCH -f default_branch=msys2-apiss-mirror-sync
 gh workflow run mirror-sync.yml --repo msys2-apiss/<repo> --ref msys2-apiss-mirror-sync \
   -f event_type=workflow_dispatch_mirror_sync
-gh api repos/msys2-apiss/<repo> -X PATCH -f default_branch=master
 ```
 
-Replace `master` with the configured content branch when different.
+If dispatch fails because the workflow is not registered yet, PATCH default branch to
+`msys2-apiss-mirror-sync`, retry dispatch, then PATCH back to the content branch (`master`
+or configured `Branches[].Mirror`).
 
 ## Related
 

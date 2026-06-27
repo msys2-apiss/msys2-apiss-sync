@@ -19,14 +19,12 @@ import {
   pushMirrorSyncBranch
 } from './mirror.ts';
 import {
-  ghDispatchMirrorSyncWorkflow,
+  ghDispatchMirrorSyncForMirror,
   ghRepoCreate,
-  ghSetRepoDefaultBranch,
   requireGhAuthenticated
 } from '../git/gh.ts';
 import { runGitText } from '../git/index.ts';
 import type { Logger } from '../git/log.ts';
-import { WORKFLOW_DISPATCH_MIRROR_SYNC } from '../types/constants.ts';
 
 function createLogger(): Logger {
   return {
@@ -37,31 +35,6 @@ function createLogger(): Logger {
     },
     close() {}
   };
-}
-
-function dispatchMirrorSyncAfterPush(owner: string, repoName: string, logger: Logger): void {
-  logger.write(`Dispatching ${WORKFLOW_DISPATCH_MIRROR_SYNC} on ${owner}/${repoName}`);
-  const result = ghDispatchMirrorSyncWorkflow(owner, repoName, logger);
-  if (result.ok) {
-    logger.write(`dispatched ${owner}/${repoName}`);
-    return;
-  }
-  if (result.skipped) {
-    return;
-  }
-  if (result.notFound) {
-    throw new Error(
-      `${WORKFLOW_DISPATCH_MIRROR_SYNC} failed for ${owner}/${repoName}: mirror-sync.yml not found`
-    );
-  }
-  if (result.forbidden) {
-    throw new Error(
-      `${WORKFLOW_DISPATCH_MIRROR_SYNC} failed for ${owner}/${repoName} (403): ` +
-        'gh cannot dispatch mirror-sync; check gh auth or SYNC_DISPATCH_TOKEN'
-    );
-  }
-  const suffix = result.detail ? `: ${result.detail}` : '';
-  throw new Error(`${WORKFLOW_DISPATCH_MIRROR_SYNC} failed for ${owner}/${repoName}${suffix}`);
 }
 
 function pushMirrorRepo(input: {
@@ -86,12 +59,7 @@ function pushMirrorRepo(input: {
   }
   pushMirrorContentBranch(input.MirrorPath, input.ContentBranch, input.RepoName, input.Logger);
   pushMirrorSyncBranch(input.MirrorPath, input.RepoName, input.Logger);
-  ghSetRepoDefaultBranch(owner, input.RepoName, MIRROR_SYNC_BRANCH, input.Logger);
-  try {
-    dispatchMirrorSyncAfterPush(owner, input.RepoName, input.Logger);
-  } finally {
-    ghSetRepoDefaultBranch(owner, input.RepoName, input.ContentBranch, input.Logger);
-  }
+  ghDispatchMirrorSyncForMirror(owner, input.RepoName, input.ContentBranch, input.Logger);
 }
 
 function runMirrorPollAfterPush(repoRoot: string, logger: Logger): void {

@@ -3,9 +3,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { Logger } from '../git/log.ts';
-import { WORKFLOW_DISPATCH_MIRROR_SYNC } from '../types/constants.ts';
 import type { MirrorSyncConfig } from '../types/mirror-sync-config.ts';
-import { ghDispatchMirrorSyncWorkflow, ghGetBranchSha, requireGhAuthenticated } from '../git/gh.ts';
+import { ghDispatchMirrorSyncForMirror, ghGetBranchSha, requireGhAuthenticated } from '../git/gh.ts';
 import { printMirrorPollCliHelp, readStringOption, wantsHelp } from './args.ts';
 
 export interface SyncConfig {
@@ -73,30 +72,18 @@ function fetchBranchSha(owner: string, repo: string, branch: string): string | n
   return ghGetBranchSha(owner, repo, branch);
 }
 
-function dispatchMirrorSync(owner: string, repo: string, logger: Logger): void {
-  const result = ghDispatchMirrorSyncWorkflow(owner, repo, logger);
-  if (result.ok) {
-    logger.write(`dispatched ${owner}/${repo}`);
-    return;
-  }
-  if (result.skipped) {
-    return;
-  }
-  if (result.notFound) {
-    throw new Error(
-      `${WORKFLOW_DISPATCH_MIRROR_SYNC} failed for ${owner}/${repo}: mirror-sync.yml not found`
-    );
-  }
-  if (result.forbidden) {
-    throw new Error(
-      `${WORKFLOW_DISPATCH_MIRROR_SYNC} failed for ${owner}/${repo} (403): ` +
-        'gh token cannot dispatch mirror-sync on other repos; set secret ' +
-        'SYNC_DISPATCH_TOKEN on msys2-apiss/msys2-apiss-sync ' +
-        '(same PAT as package mirror repos; workflow scope on msys2-apiss/*)'
-    );
-  }
-  const suffix = result.detail ? `: ${result.detail}` : '';
-  throw new Error(`${WORKFLOW_DISPATCH_MIRROR_SYNC} failed for ${owner}/${repo}${suffix}`);
+function dispatchMirrorSync(
+  owner: string,
+  repo: string,
+  contentBranch: string,
+  logger: Logger
+): void {
+  ghDispatchMirrorSyncForMirror(owner, repo, contentBranch, logger, {
+    ForbiddenDetail:
+      'gh token cannot dispatch mirror-sync on other repos; set secret ' +
+      'SYNC_DISPATCH_TOKEN on msys2-apiss/msys2-apiss-sync ' +
+      '(same PAT as package mirror repos; workflow scope on msys2-apiss/*)'
+  });
 }
 
 function createLogger(): Logger {
@@ -182,7 +169,8 @@ export async function runMirrorPoll(input: { RepoFilter?: string } = {}): Promis
     }
     logger.write(`${repo}: tips differ`);
     try {
-      dispatchMirrorSync(mirrorOwner, repo, logger);
+      const contentBranch = getMirrorContentBranch(repoRoot, repo);
+      dispatchMirrorSync(mirrorOwner, repo, contentBranch, logger);
     } catch (error) {
       dispatchFailed = true;
       logger.write(error instanceof Error ? error.message : String(error), 'Error');

@@ -185,3 +185,63 @@ export function ghDispatchMirrorSyncWorkflow(
     detailLower.includes('must have admin rights');
   return { ok: false, notFound, forbidden, detail: detail || undefined };
 }
+
+function throwMirrorSyncDispatchFailure(
+  owner: string,
+  repoName: string,
+  result: { notFound?: boolean; forbidden?: boolean; detail?: string },
+  forbiddenDetail?: string
+): never {
+  if (result.notFound) {
+    throw new Error(
+      `${WORKFLOW_DISPATCH_MIRROR_SYNC} failed for ${owner}/${repoName}: mirror-sync.yml not found`
+    );
+  }
+  if (result.forbidden) {
+    throw new Error(
+      `${WORKFLOW_DISPATCH_MIRROR_SYNC} failed for ${owner}/${repoName} (403): ` +
+        (forbiddenDetail ??
+          'gh cannot dispatch mirror-sync; check gh auth or SYNC_DISPATCH_TOKEN')
+    );
+  }
+  const suffix = result.detail ? `: ${result.detail}` : '';
+  throw new Error(`${WORKFLOW_DISPATCH_MIRROR_SYNC} failed for ${owner}/${repoName}${suffix}`);
+}
+
+export function ghDispatchMirrorSyncForMirror(
+  owner: string,
+  repoName: string,
+  contentBranch: string,
+  logger: Logger,
+  options?: { ForbiddenDetail?: string }
+): void {
+  logger.write(`Dispatching ${WORKFLOW_DISPATCH_MIRROR_SYNC} on ${owner}/${repoName}`);
+  let result = ghDispatchMirrorSyncWorkflow(owner, repoName, logger);
+  if (result.ok) {
+    logger.write(`dispatched ${owner}/${repoName}`);
+    return;
+  }
+  if (result.skipped) {
+    return;
+  }
+  if (!result.notFound) {
+    throwMirrorSyncDispatchFailure(owner, repoName, result, options?.ForbiddenDetail);
+  }
+  logger.write(
+    `${repoName}: mirror-sync.yml not registered; setting default branch to ${MIRROR_SYNC_BRANCH}`
+  );
+  ghSetRepoDefaultBranch(owner, repoName, MIRROR_SYNC_BRANCH, logger);
+  try {
+    result = ghDispatchMirrorSyncWorkflow(owner, repoName, logger);
+    if (result.ok) {
+      logger.write(`dispatched ${owner}/${repoName}`);
+      return;
+    }
+    if (result.skipped) {
+      return;
+    }
+    throwMirrorSyncDispatchFailure(owner, repoName, result, options?.ForbiddenDetail);
+  } finally {
+    ghSetRepoDefaultBranch(owner, repoName, contentBranch, logger);
+  }
+}
