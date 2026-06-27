@@ -9,14 +9,15 @@ Code: `src/mirror-init/`.
 ## Command
 
 ```bash
-yarn mirror-init [--repo <name>] [--skip-fetch] [--push]
+yarn mirror-init [--repo <name>] [--skip-fetch] [--push] [--no-poll]
 ```
 
 | Flag | Purpose |
 |------|---------|
 | `--repo <name>` | Single mirror from `config/mirror-poll.json` `Repos` |
 | `--skip-fetch` | Skip `git fetch origin` during ensure-init |
-| `--push` | Same as plain init, then push tooling branches, dispatch Block 3 per mirror, dispatch Block 2 **`mirror-poll.yml`** on GitHub |
+| `--push` | Push tooling branches and dispatch Block 3/4 on bootstrapped repos |
+| `--no-poll` | Skip **`mirror-poll.yml`** dispatch at end (default: always dispatch) |
 
 Examples:
 
@@ -26,7 +27,7 @@ yarn mirror-init --repo glibc --push
 yarn mirror-init --push
 ```
 
-Requires `gh auth login` when using `--push`.
+Requires `gh auth login` unless **`--no-poll`** (mirror-poll dispatch at end of every run).
 
 Rebuild Block 3/4 CLI bundles after changing `src/mirror-sync`, `src/mirror-merge`, or
 shared `src/git` / `src/types` code:
@@ -192,10 +193,8 @@ pattern as mirror-sync when the workflow is not registered yet).
 - Skip dispatch only when a `mirror-sync` run is already in progress on that repo.
 - Does **not** wait for the run to finish.
 
-**Mirror-poll (once, after all mirrors):** dispatch Block 2 [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml)
-on **`msys2-apiss/msys2-apiss-sync`** (`main`). CI runs `yarn mirror-poll` over all
-`config/mirror-poll.json` `Repos` entries, compares upstream vs mirror tips, and dispatches Block 3
-where still behind.
+**Mirror-poll (always at end, unless `--no-poll`):** dispatch Block 2 [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml)
+on **`msys2-apiss/msys2-apiss-sync`** (`main`). Runs after init/push work regardless of **`--skip-fetch`**, **`--repo`**, or digest pins.
 
 ```bash
 gh workflow run mirror-poll.yml --repo msys2-apiss/msys2-apiss-sync --ref main
@@ -203,11 +202,7 @@ gh workflow run mirror-poll.yml --repo msys2-apiss/msys2-apiss-sync --ref main
 
 - Does **not** wait for the poll run or Block 3 runs to finish.
 
-Per-mirror Block 3 dispatch and Block 2 poll dispatch are **both** triggered in **`--push`**; poll does
-not replace the per-mirror dispatch.
-
-Without **`--push`**: no GitHub push, no Block 3 dispatch. Use `yarn mirror-poll`, CI cron, or manual
-`mirror-poll.yml` dispatch later.
+Without **`--push`**: no GitHub push or Block 3/4 dispatch; mirror-poll still runs at end unless **`--no-poll`**.
 
 ## New mirror: mirror-sync dispatch 404
 

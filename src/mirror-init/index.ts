@@ -102,12 +102,10 @@ export async function runMirrorInit(input: {
   Push?: boolean;
   SkipFetch?: boolean;
   RepoFilter?: string;
+  NoPoll?: boolean;
 }): Promise<void> {
   process.env.LANG = 'C.UTF-8';
   process.env.LC_ALL = 'C.UTF-8';
-  if (input.Push) {
-    requireGhAuthenticated();
-  }
 
   const repoRoot = getSyncRepoRoot();
   const mirrorPollConfig = loadMirrorPollConfig(repoRoot);
@@ -118,6 +116,10 @@ export async function runMirrorInit(input: {
   const logger = createLogger();
   logger.write('start');
 
+  if (input.Push || !input.NoPoll) {
+    requireGhAuthenticated();
+  }
+
   const currentDigest = computeConfigTreeDigest(repoRoot);
   const digestMap = loadDigestMap(repoRoot, logger);
   let digestMapDirty = false;
@@ -126,54 +128,64 @@ export async function runMirrorInit(input: {
     throw new Error(`Unknown mirror repo: ${input.RepoFilter}`);
   }
 
+  const mirrorReposInScope = getMirrorPollRepoNames(mirrorPollConfig).filter(
+    (repoName) => !input.RepoFilter || input.RepoFilter === repoName
+  );
   const destinationNeedsBootstrap = repoNeedsBootstrap(digestMap, destinationRepo, currentDigest);
-  const destinationPath = initializeDestinationRepository({
-    RepoRoot: repoRoot,
-    WorkDirectory: work,
-    Owner: owner,
-    DestinationRepo: destinationRepo,
-    DefaultBranch: defaultBranch,
-    SkipFetch: Boolean(input.SkipFetch),
-    Logger: logger,
-    NeedsBootstrap: destinationNeedsBootstrap
-  });
-  if (input.Push) {
+  const anyMirrorNeedsBootstrap = mirrorReposInScope.some((repoName) =>
+    repoNeedsBootstrap(digestMap, repoName, currentDigest)
+  );
+
+  const allReposPinned = !destinationNeedsBootstrap && !anyMirrorNeedsBootstrap;
+
+  if (allReposPinned) {
+    logger.write('config digest pinned for all repos; nothing to do');
+  } else {
     if (destinationNeedsBootstrap) {
-      pushDestinationRepo({
-        RepoPath: destinationPath,
+      const destinationPath = initializeDestinationRepository({
+        RepoRoot: repoRoot,
+        WorkDirectory: work,
         Owner: owner,
         DestinationRepo: destinationRepo,
         DefaultBranch: defaultBranch,
+        SkipFetch: Boolean(input.SkipFetch),
         Logger: logger
       });
-      pinRepoDigest(digestMap, destinationRepo, currentDigest);
-      digestMapDirty = true;
+      if (input.Push) {
+        pushDestinationRepo({
+          RepoPath: destinationPath,
+          Owner: owner,
+          DestinationRepo: destinationRepo,
+          DefaultBranch: defaultBranch,
+          Logger: logger
+        });
+        pinRepoDigest(digestMap, destinationRepo, currentDigest);
+        digestMapDirty = true;
+      }
+      const mergeTip = runGitText(destinationPath, ['rev-parse', MIRROR_MERGE_BRANCH]).trim();
+      logger.write(
+        `${owner}/${destinationRepo}: ${destinationPath} (${MIRROR_MERGE_BRANCH}=${mergeTip.slice(0, 8)})`
+      );
     } else {
-      logger.write(`${destinationRepo}: config digest pinned; skipping push/dispatch`);
+      logger.write(`${destinationRepo}: config digest pinned; skipping init`);
     }
-  }
-  const mergeTip = runGitText(destinationPath, ['rev-parse', MIRROR_MERGE_BRANCH]).trim();
-  logger.write(
-    `${owner}/${destinationRepo}: ${destinationPath} (${MIRROR_MERGE_BRANCH}=${mergeTip.slice(0, 8)})`
-  );
 
-  for (const repoName of getMirrorPollRepoNames(mirrorPollConfig)) {
-    if (input.RepoFilter && input.RepoFilter !== repoName) {
-      continue;
-    }
-    const contentBranch = getMirrorContentBranch(repoRoot, repoName);
-    const mirrorNeedsBootstrap = repoNeedsBootstrap(digestMap, repoName, currentDigest);
-    const mirrorPath = initializeNamedMirrorRepository({
-      WorkDirectory: work,
-      RepoName: repoName,
-      ContentBranch: contentBranch,
-      Owner: owner,
-      SkipFetch: Boolean(input.SkipFetch),
-      Logger: logger,
-      NeedsBootstrap: mirrorNeedsBootstrap
-    });
-    if (input.Push) {
-      if (mirrorNeedsBootstrap) {
+    for (const repoName of mirrorReposInScope) {
+      const contentBranch = getMirrorContentBranch(repoRoot, repoName);
+      const mirrorNeedsBootstrap = repoNeedsBootstrap(digestMap, repoName, currentDigest);
+      if (!mirrorNeedsBootstrap) {
+        logger.write(`${repoName}: config digest pinned; skipping init`);
+        continue;
+      }
+      const mirrorPath = initializeNamedMirrorRepository({
+        WorkDirectory: work,
+        RepoName: repoName,
+        ContentBranch: contentBranch,
+        Owner: owner,
+        SkipFetch: Boolean(input.SkipFetch),
+        Logger: logger
+      });
+      if (input.Push) {
         pushMirrorRepo({
           RepoRoot: repoRoot,
           RepoName: repoName,
@@ -184,18 +196,20 @@ export async function runMirrorInit(input: {
         });
         pinRepoDigest(digestMap, repoName, currentDigest);
         digestMapDirty = true;
-      } else {
-        logger.write(`${repoName}: config digest pinned; skipping push/dispatch`);
       }
+      const syncTip = runGitText(mirrorPath, ['rev-parse', MIRROR_SYNC_BRANCH]).trim();
+      const tip = runGitText(mirrorPath, ['rev-parse', contentBranch]).trim();
+      logger.write(
+        `${repoName}: ${mirrorPath} (msys2-apiss-mirror-sync=${syncTip.slice(0, 8)}, ${contentBranch}=${tip.slice(0, 8)})`
+      );
     }
-    const syncTip = runGitText(mirrorPath, ['rev-parse', MIRROR_SYNC_BRANCH]).trim();
-    const tip = runGitText(mirrorPath, ['rev-parse', contentBranch]).trim();
-    logger.write(
-      `${repoName}: ${mirrorPath} (msys2-apiss-mirror-sync=${syncTip.slice(0, 8)}, ${contentBranch}=${tip.slice(0, 8)})`
-    );
   }
 
-  if (input.Push) {
+  if (input.Push && digestMapDirty) {
+    saveDigestMap(repoRoot, digestMap);
+    logger.write('updated config/digest.json');
+  }
+  if (!input.NoPoll) {
     ghDispatchMirrorBlock(
       MIRROR_POLL_BLOCK,
       owner,
@@ -203,10 +217,8 @@ export async function runMirrorInit(input: {
       TOOLING_DEFAULT_BRANCH,
       logger
     );
-    if (digestMapDirty) {
-      saveDigestMap(repoRoot, digestMap);
-      logger.write('updated config/digest.json');
-    }
+  } else {
+    logger.write('--no-poll: mirror-poll.yml dispatch skipped');
   }
   logger.write('done');
 }
@@ -222,6 +234,7 @@ export async function runMirrorInitCli(): Promise<void> {
     await runMirrorInit({
       Push: readFlag(args, '--push'),
       SkipFetch: readFlag(args, '--skip-fetch'),
+      NoPoll: readFlag(args, '--no-poll'),
       RepoFilter: readStringOption(args, '--repo')
     });
   } catch (error) {

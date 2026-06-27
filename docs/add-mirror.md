@@ -144,8 +144,9 @@ yarn fetch-mirrors --skip-fetch --push
 On first bootstrap, `--push` temporarily sets default branch to `msys2-apiss-sync` so
 GitHub registers `mirror-sync.yml`, triggers mirror-sync, then immediately sets
 default back to the content branch (`master` or configured mirror branch). It
-does not wait for the run to finish. Later `--push` and `mirror-poll`
-dispatch on ref `msys2-apiss-sync` when the workflow file is on that branch.
+does not wait for the run to finish. Later **`--push`** dispatches mirror-sync on ref
+`msys2-apiss-mirror-sync` when the workflow file is on that branch, then mirror-poll
+(unless **`--no-poll`**).
 
 Or manually:
 

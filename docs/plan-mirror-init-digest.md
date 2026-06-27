@@ -122,8 +122,9 @@ For each target repo during `yarn mirror-init`:
 
 **Skip** means:
 
-- Do not re-apply workflow template if digest matches.
-- On `--push`: do not push tooling branch or dispatch Block 3/4 for that repo.
+- Skip repo init entirely (no clone/fetch/checkout/layout checks).
+- Do not re-apply workflow template, push tooling branch, or dispatch Block 3/4.
+- On `--push` with all repos pinned: skip repo init; mirror-poll still runs at end unless **`--no-poll`**.
 
 After **successful** `--push` bootstrap for a repo, set
 `digest.json[repo] = currentConfigDigest` and save `config/digest.json`.
