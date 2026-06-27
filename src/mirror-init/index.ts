@@ -1,6 +1,3 @@
-import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
-
 import { printMirrorInitCliHelp, readFlag, readStringOption, wantsHelp } from './args.ts';
 import {
   getMirrorContentBranch,
@@ -23,12 +20,18 @@ import {
   ghDispatchMirrorBlock,
   ghRepoCreate,
   MIRROR_MERGE_BLOCK,
+  MIRROR_POLL_BLOCK,
   MIRROR_SYNC_BLOCK,
   requireGhAuthenticated
 } from '../git/gh.ts';
 import { runGitText } from '../git/index.ts';
 import type { Logger } from '../git/log.ts';
-import { MIRROR_MERGE_BRANCH, MIRROR_SYNC_BRANCH } from '../types/constants.ts';
+import {
+  MIRROR_MERGE_BRANCH,
+  MIRROR_SYNC_BRANCH,
+  TOOLING_DEFAULT_BRANCH,
+  TOOLING_REPO
+} from '../types/constants.ts';
 
 function createLogger(): Logger {
   return {
@@ -78,18 +81,6 @@ function pushMirrorRepo(input: {
   }
   pushMirrorSyncBranch(input.MirrorPath, input.RepoName, input.Logger);
   ghDispatchMirrorBlock(MIRROR_SYNC_BLOCK, input.Owner, input.RepoName, input.ContentBranch, input.Logger);
-}
-
-function runMirrorPollAfterPush(repoRoot: string, logger: Logger): void {
-  logger.write('Running yarn mirror-poll after push');
-  const result = spawnSync(process.execPath, [join(repoRoot, 'src/mirror-poll/cli.ts')], {
-    cwd: repoRoot,
-    stdio: 'inherit',
-    env: process.env
-  });
-  if (result.status !== 0) {
-    throw new Error(`mirror-poll exited with code ${result.status ?? 'unknown'}`);
-  }
 }
 
 export async function runMirrorInit(input: {
@@ -170,7 +161,13 @@ export async function runMirrorInit(input: {
   }
 
   if (input.Push) {
-    runMirrorPollAfterPush(repoRoot, logger);
+    ghDispatchMirrorBlock(
+      MIRROR_POLL_BLOCK,
+      owner,
+      TOOLING_REPO,
+      TOOLING_DEFAULT_BRANCH,
+      logger
+    );
   }
   logger.write('done');
 }

@@ -133,6 +133,48 @@ export function ghSetRepoDefaultBranch(
   }
 }
 
+function sleepMs(ms: number): void {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    // Busy wait: mirror-init dispatch bootstrap runs synchronously after push.
+  }
+}
+
+function ghWorkflowRegistered(owner: string, repoName: string, workflowFile: string): boolean {
+  const workflowPath = `.github/workflows/${workflowFile}`;
+  const result = runGh([
+    'api',
+    `repos/${owner}/${repoName}/actions/workflows`,
+    '--jq',
+    `[.workflows[].path] | index("${workflowPath}") != null`
+  ]);
+  return result.ok && result.stdout === 'true';
+}
+
+function waitForWorkflowRegistration(input: {
+  Owner: string;
+  RepoName: string;
+  WorkflowFile: string;
+  Logger: Logger;
+  MaxAttempts?: number;
+  DelayMs?: number;
+}): boolean {
+  const maxAttempts = input.MaxAttempts ?? 12;
+  const delayMs = input.DelayMs ?? 5000;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (ghWorkflowRegistered(input.Owner, input.RepoName, input.WorkflowFile)) {
+      return true;
+    }
+    if (attempt < maxAttempts) {
+      input.Logger.write(
+        `${input.RepoName}: waiting for ${input.WorkflowFile} registration (${attempt}/${maxAttempts})`
+      );
+      sleepMs(delayMs);
+    }
+  }
+  return false;
+}
+
 function ghMirrorBlockRunInProgress(
   owner: string,
   repoName: string,
@@ -211,6 +253,27 @@ function throwMirrorBlockDispatchFailure(
   throw new Error(`${spec.Block} failed for ${owner}/${repoName}${suffix}`);
 }
 
+function handleMirrorBlockDispatchResult(
+  result: GhDispatchAttemptResult,
+  owner: string,
+  repoName: string,
+  spec: MirrorBlockDispatchSpec,
+  logger: Logger,
+  options?: { ForbiddenDetail?: string }
+): 'done' | 'not_found' {
+  if (result.ok) {
+    logger.write(`dispatched ${owner}/${repoName}`);
+    return 'done';
+  }
+  if (result.skipped) {
+    return 'done';
+  }
+  if (result.notFound) {
+    return 'not_found';
+  }
+  throwMirrorBlockDispatchFailure(owner, repoName, spec, result, options?.ForbiddenDetail);
+}
+
 export function ghDispatchMirrorBlock(
   spec: MirrorBlockDispatchSpec,
   owner: string,
@@ -221,30 +284,28 @@ export function ghDispatchMirrorBlock(
 ): void {
   logger.write(`Dispatching ${spec.Block} on ${owner}/${repoName}`);
   let result = ghAttemptMirrorBlockDispatch(owner, repoName, spec, logger);
-  if (result.ok) {
-    logger.write(`dispatched ${owner}/${repoName}`);
+  if (handleMirrorBlockDispatchResult(result, owner, repoName, spec, logger, options) === 'done') {
     return;
-  }
-  if (result.skipped) {
-    return;
-  }
-  if (!result.notFound) {
-    throwMirrorBlockDispatchFailure(owner, repoName, spec, result, options?.ForbiddenDetail);
   }
   logger.write(
     `${repoName}: ${spec.WorkflowFile} not registered; setting default branch to ${spec.ToolingBranch}`
   );
   ghSetRepoDefaultBranch(owner, repoName, spec.ToolingBranch, logger);
   try {
+    if (
+      !waitForWorkflowRegistration({
+        Owner: owner,
+        RepoName: repoName,
+        WorkflowFile: spec.WorkflowFile,
+        Logger: logger
+      })
+    ) {
+      throw new Error(
+        `${spec.Block} failed for ${owner}/${repoName}: ${spec.WorkflowFile} not registered after waiting`
+      );
+    }
     result = ghAttemptMirrorBlockDispatch(owner, repoName, spec, logger);
-    if (result.ok) {
-      logger.write(`dispatched ${owner}/${repoName}`);
-      return;
-    }
-    if (result.skipped) {
-      return;
-    }
-    throwMirrorBlockDispatchFailure(owner, repoName, spec, result, options?.ForbiddenDetail);
+    handleMirrorBlockDispatchResult(result, owner, repoName, spec, logger, options);
   } finally {
     if (ghRemoteHasBranch(owner, repoName, defaultBranch)) {
       ghSetRepoDefaultBranch(owner, repoName, defaultBranch, logger);
@@ -258,4 +319,4 @@ export function ghDispatchMirrorBlock(
 }
 
 export type { GhDispatchAttemptResult, MirrorBlockDispatchSpec } from './mirror-block-dispatch.ts';
-export { MIRROR_MERGE_BLOCK, MIRROR_SYNC_BLOCK } from './mirror-block-dispatch.ts';
+export { MIRROR_MERGE_BLOCK, MIRROR_POLL_BLOCK, MIRROR_SYNC_BLOCK } from './mirror-block-dispatch.ts';

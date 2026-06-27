@@ -20,3 +20,9 @@ export const MIRROR_MERGE_CONFIG_PATH = 'config/mirror-merge.json';
 
 /** Block 2 poll config in the tooling repo. */
 export const MIRROR_POLL_CONFIG_PATH = 'config/mirror-poll.json';
+
+/** This tooling repository (Block 2 workflows on main). */
+export const TOOLING_REPO = 'msys2-apiss-sync';
+
+/** Default branch for TOOLING_REPO (mirror-poll.yml lives here). */
+export const TOOLING_DEFAULT_BRANCH = 'main';

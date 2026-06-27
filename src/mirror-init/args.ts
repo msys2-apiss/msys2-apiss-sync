@@ -10,7 +10,7 @@ export function printMirrorInitCliHelp(): void {
   console.log(`Usage: yarn mirror-init [options]
 
 Options:
-  --push                    Push mirror branches, dispatch mirror-sync per mirror, then mirror-poll
+  --push                    Push mirror branches, dispatch mirror-sync per mirror, then mirror-poll.yml
   --repo <name>             Single mirror from config/mirror-poll.json Repos
   --skip-fetch              Skip git fetch origin during ensure-init
   -h, --help                Show this help

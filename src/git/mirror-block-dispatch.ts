@@ -1,6 +1,7 @@
 import {
   MIRROR_MERGE_BRANCH,
   MIRROR_SYNC_BRANCH,
+  TOOLING_DEFAULT_BRANCH,
   WORKFLOW_DISPATCH_MIRROR_MERGE,
   WORKFLOW_DISPATCH_MIRROR_SYNC
 } from '../types/constants.ts';
@@ -32,6 +33,13 @@ export const MIRROR_MERGE_BLOCK: MirrorBlockDispatchSpec = {
   ToolingBranch: MIRROR_MERGE_BRANCH,
   WorkflowFile: 'mirror-merge.yml',
   WorkflowInputs: [['event_type', WORKFLOW_DISPATCH_MIRROR_MERGE]]
+};
+
+export const MIRROR_POLL_BLOCK: MirrorBlockDispatchSpec = {
+  Block: 'mirror-poll',
+  ToolingBranch: TOOLING_DEFAULT_BRANCH,
+  WorkflowFile: 'mirror-poll.yml',
+  WorkflowInputs: []
 };
 
 export function parseGhDispatchFailure(detail: string): Omit<GhDispatchAttemptResult, 'ok'> {

@@ -31,7 +31,7 @@ repos, blocks, CI boundaries, or operator flows.
 |-----------|--------|
 | **Entry point** | **Local checkout** of [`msys2-apiss/msys2-apiss-sync`](https://github.com/msys2-apiss/msys2-apiss-sync) -- all operator commands run here |
 | External upstream | `UpstreamUrl` in `config/mirror-sync/*.json` only; not a workflow actor |
-| Block 1 init | From **msys2-apiss/msys2-apiss-sync** code/templates: **initialize Block 3** on each `msys2-apiss/*` mirror (branch **`msys2-apiss-mirror-sync`**) and **Block 4 CI** on destination branch **`msys2-apiss-mirror-merge`** on **`msys2-apiss/msys2-apiss`**. Same [Tooling branch layout](mirror-init.md#tooling-branch-layout) for both. Every `yarn mirror-init` run deploys/repairs these; **`yarn mirror-init --push`** pushes to the **msys2-apiss** org, dispatches Block 3 on each pushed mirror, then runs **`yarn mirror-poll`** (all repos) |
+| Block 1 init | From **msys2-apiss/msys2-apiss-sync** code/templates: **initialize Block 3** on each `msys2-apiss/*` mirror (branch **`msys2-apiss-mirror-sync`**) and **Block 4 CI** on destination branch **`msys2-apiss-mirror-merge`** on **`msys2-apiss/msys2-apiss`**. Same [Tooling branch layout](mirror-init.md#tooling-branch-layout) for both. Every `yarn mirror-init` run deploys/repairs these; **`yarn mirror-init --push`** pushes to the **msys2-apiss** org, dispatches Block 3 on each pushed mirror, then dispatches Block 2 **`mirror-poll.yml`** on GitHub |
 | Block 2 poll | Compare tips; **trigger Block 3** when behind. Runs via **`yarn mirror-poll`** or **`mirror-poll.yml`** cron |
 | Block 3 mirror-sync | On each **`msys2-apiss/*` mirror repo**; **only configured mirrors** (e.g. `MSYS2-packages`, `MINGW-packages` with `Notify.Enabled`) dispatch Block 4 CI |
 | Block 4 mirror-merge | `yarn mirror-merge` locally **or** [`mirror-merge.yml`](../config/mirror-template/mirror-merge.yml) CI; replay + `git push` to `msys2-apiss/msys2-apiss` on `upstream*` |
@@ -71,7 +71,7 @@ and the Block 4 workflow branch to **`msys2-apiss/msys2-apiss`**, then dispatche
 | Block | Repo | Workflow | Command / runs | Git / I/O | Output |
 |-------|------|----------|----------------|-----------|--------|
 | **0** | External (`msys2/*`, SourceForge, ...) | None | Config only | `UpstreamUrl` in `config/mirror-sync/*.json` | -- |
-| **1** | `msys2-apiss/msys2-apiss-sync` (**local checkout**) | None | `yarn mirror-init` `[--push] [--repo <name>]` | From tooling repo code: initialize Block 3 on **`msys2-apiss/*`** + Block 4 CI on **`msys2-apiss/msys2-apiss`** ([Tooling branch layout](mirror-init.md#tooling-branch-layout)); with **`--push`**: push to msys2-apiss org, dispatch Block 3 per pushed mirror, then mirror-poll (all repos) | Block 3/4 workflows deployed; **`--push`**: per-mirror Block 3 + Block 2 poll |
+| **1** | `msys2-apiss/msys2-apiss-sync` (**local checkout**) | None | `yarn mirror-init` `[--push] [--repo <name>]` | From tooling repo code: initialize Block 3 on **`msys2-apiss/*`** + Block 4 CI on **`msys2-apiss/msys2-apiss`** ([Tooling branch layout](mirror-init.md#tooling-branch-layout)); with **`--push`**: push to msys2-apiss org, dispatch Block 3 per pushed mirror, then dispatch Block 2 **`mirror-poll.yml`** | Block 3/4 workflows deployed; **`--push`**: per-mirror Block 3 + Block 2 poll dispatch |
 | **2** | `msys2-apiss/msys2-apiss-sync` (local or CI) | [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml) on `main` (cron) | `yarn mirror-poll`; CI cron | Poll only; `workflow_dispatch_mirror_sync` Block 3 when behind | Block 3 triggered |
 | **3** | **`msys2-apiss/*` mirror repos** | [`mirror-sync.yml`](../config/mirror-template/mirror-sync.yml) on mirror branch `msys2-apiss-mirror-sync` | Block 2 dispatch | Fetch upstream; push mirror `master` | Mirror updated; **if `Notify.Enabled`**: dispatch Block 4 CI (e.g. `MSYS2-packages`, `MINGW-packages`) |
 | **4** | Destination `msys2-apiss/msys2-apiss` (CI) + tooling checkout (local) | [`mirror-merge.yml`](../config/mirror-template/mirror-merge.yml) on branch **`msys2-apiss-mirror-merge`** | `yarn mirror-merge` or CI (`workflow_dispatch_mirror_merge` from Block 3, cron, manual) | Retrieve -> merge-sort -> replay -> push `upstream*` on destination | Destination replay complete |
@@ -139,7 +139,7 @@ tip; upstream from config URL). When SHAs differ, dispatch
 CI: `GH_TOKEN` from `secrets.SYNC_DISPATCH_TOKEN` on `msys2-apiss/msys2-apiss-sync`
 (fallback `github.token`). See [`usage.md`](usage.md).
 
-Block 2 also runs at end of Block 1 **`--push`** (after per-mirror Block 3 dispatch, `yarn mirror-poll` over all repos).
+Block 2 also runs at end of Block 1 **`--push`** (after per-mirror Block 3 dispatch, GitHub dispatch of **`mirror-poll.yml`**).
 
 Keep: in-progress run skip; workflow registration bootstrap on 404; default-branch dance
 for first dispatch when needed.
@@ -187,6 +187,6 @@ Package mirrors with `Notify.Enabled` dispatch Block 4 via `gh workflow run mirr
 | Block 4 algorithm (PLAN phases 1a-1d) | Implemented |
 | Block 2 `mirror-poll.yml` | Present |
 | Block 1 init Block 3 + Block 4 from tooling code (every run) | Partial (Block 3 yes; Block 4 branch pending) |
-| Block 1 `--push` per-mirror dispatch + mirror-poll after push | Implemented |
+| Block 1 `--push` per-mirror dispatch + mirror-poll.yml dispatch after push | Implemented |
 | Block 3 dispatch -> Block 4 CI | Present when `Notify.Enabled` (e.g. `MSYS2-packages`, `MINGW-packages`) |
 | Update [`usage.md`](usage.md), [`run-local.md`](run-local.md) | Pending |

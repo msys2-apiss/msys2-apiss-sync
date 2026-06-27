@@ -16,7 +16,7 @@ yarn mirror-init [--repo <name>] [--skip-fetch] [--push]
 |------|---------|
 | `--repo <name>` | Single mirror from `config/mirror-poll.json` `Repos` |
 | `--skip-fetch` | Skip `git fetch origin` during ensure-init |
-| `--push` | Same as plain init, then push tooling branches, dispatch Block 3 per mirror, run **`yarn mirror-poll`** |
+| `--push` | Same as plain init, then push tooling branches, dispatch Block 3 per mirror, dispatch Block 2 **`mirror-poll.yml`** on GitHub |
 
 Examples:
 
@@ -171,21 +171,22 @@ pattern as mirror-sync when the workflow is not registered yet).
 - Skip dispatch only when a `mirror-sync` run is already in progress on that repo.
 - Does **not** wait for the run to finish.
 
-**Mirror-poll (once, after all mirrors):** run Block 2 **`yarn mirror-poll`** over all
-`config/mirror-poll.json` `Repos` entries. Poll compares upstream vs mirror tips and dispatches Block 3 again
-on repos still behind:
+**Mirror-poll (once, after all mirrors):** dispatch Block 2 [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml)
+on **`msys2-apiss/msys2-apiss-sync`** (`main`). CI runs `yarn mirror-poll` over all
+`config/mirror-poll.json` `Repos` entries, compares upstream vs mirror tips, and dispatches Block 3
+where still behind.
 
 ```bash
-yarn mirror-poll
+gh workflow run mirror-poll.yml --repo msys2-apiss/msys2-apiss-sync --ref main
 ```
 
-- Skip dispatch when tips already match or a `mirror-sync` run is already in progress.
-- Does **not** wait for Block 3 runs to finish.
+- Does **not** wait for the poll run or Block 3 runs to finish.
 
-Per-mirror dispatch and mirror-poll dispatch are **both** required in **`--push`**; poll does
+Per-mirror Block 3 dispatch and Block 2 poll dispatch are **both** triggered in **`--push`**; poll does
 not replace the per-mirror dispatch.
 
-Without **`--push`**: no GitHub push, no Block 3 dispatch. Use `yarn mirror-poll` or CI cron later.
+Without **`--push`**: no GitHub push, no Block 3 dispatch. Use `yarn mirror-poll`, CI cron, or manual
+`mirror-poll.yml` dispatch later.
 
 ## Manual equivalent (one repo)
 
