@@ -87,7 +87,16 @@ function dispatchMirrorSync(owner: string, repo: string, logger: Logger): void {
       `${WORKFLOW_DISPATCH_MIRROR_SYNC} failed for ${owner}/${repo}: mirror-sync.yml not found`
     );
   }
-  throw new Error(`${WORKFLOW_DISPATCH_MIRROR_SYNC} failed for ${owner}/${repo}`);
+  if (result.forbidden) {
+    throw new Error(
+      `${WORKFLOW_DISPATCH_MIRROR_SYNC} failed for ${owner}/${repo} (403): ` +
+        'gh token cannot dispatch mirror-sync on other repos; set secret ' +
+        'SYNC_DISPATCH_TOKEN on msys2-apiss/msys2-apiss-sync ' +
+        '(same PAT as package mirror repos; workflow scope on msys2-apiss/*)'
+    );
+  }
+  const suffix = result.detail ? `: ${result.detail}` : '';
+  throw new Error(`${WORKFLOW_DISPATCH_MIRROR_SYNC} failed for ${owner}/${repo}${suffix}`);
 }
 
 function createLogger(): Logger {
@@ -156,6 +165,8 @@ export async function runMirrorPoll(input: { RepoFilter?: string } = {}): Promis
 
   logger.write('start');
 
+  let dispatchFailed = false;
+
   for (const repo of getMirrorPollRepoNames(config)) {
     if (input.RepoFilter && input.RepoFilter !== repo) {
       continue;
@@ -170,10 +181,18 @@ export async function runMirrorPoll(input: { RepoFilter?: string } = {}): Promis
       continue;
     }
     logger.write(`${repo}: tips differ`);
-    dispatchMirrorSync(mirrorOwner, repo, logger);
+    try {
+      dispatchMirrorSync(mirrorOwner, repo, logger);
+    } catch (error) {
+      dispatchFailed = true;
+      logger.write(error instanceof Error ? error.message : String(error), 'Error');
+    }
   }
 
   logger.write('done');
+  if (dispatchFailed) {
+    process.exitCode = 1;
+  }
 }
 
 export async function runMirrorPollCli(): Promise<void> {

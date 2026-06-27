@@ -133,7 +133,7 @@ export function ghDispatchMirrorSyncWorkflow(
   owner: string,
   repoName: string,
   logger?: Logger
-): { ok: boolean; skipped?: boolean; notFound?: boolean } {
+): { ok: boolean; skipped?: boolean; notFound?: boolean; forbidden?: boolean; detail?: string } {
   const inProgress = ghMirrorSyncRunInProgress(owner, repoName);
   if (inProgress === true) {
     logger?.write(`Skip mirror-sync dispatch on ${owner}/${repoName}: run already in progress`);
@@ -153,7 +153,12 @@ export function ghDispatchMirrorSyncWorkflow(
   if (result.ok) {
     return { ok: true };
   }
-  const detail = `${result.stderr} ${result.stdout}`.toLowerCase();
-  const notFound = detail.includes('404') || detail.includes('not found');
-  return { ok: false, notFound };
+  const detail = `${result.stderr} ${result.stdout}`.trim();
+  const detailLower = detail.toLowerCase();
+  const notFound = detailLower.includes('404') || detailLower.includes('not found');
+  const forbidden =
+    detailLower.includes('403') ||
+    detailLower.includes('resource not accessible') ||
+    detailLower.includes('must have admin rights');
+  return { ok: false, notFound, forbidden, detail: detail || undefined };
 }

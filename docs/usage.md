@@ -16,24 +16,36 @@ on branch `msys2-apiss-mirror-merge` (installed by `yarn mirror-init`).
 
 Requires the [GitHub CLI](https://cli.github.com/) (`gh auth login`) with access to
 `msys2-apiss`. Local commands use **git** and **gh** only; no env secrets.
-Remote mirror repos may hold `SYNC_DISPATCH_TOKEN` or `MIRROR_PUSH_SSH_KEY` (see
-below); set them with `gh secret set` on each mirror repo.
+`SYNC_DISPATCH_TOKEN` and `MIRROR_PUSH_SSH_KEY` are GitHub Actions secrets on
+remote repos (see below); set them with `gh secret set`.
 
-### Setup `SYNC_DISPATCH_TOKEN` (package mirrors only)
+### Setup `SYNC_DISPATCH_TOKEN`
 
-Only **`MSYS2-packages`** and **`MINGW-packages`** need this secret
-(`Notify.Enabled: true` dispatches to `msys2-apiss-sync` after mirror-sync).
+One PAT is reused in three places:
+
+| Where | Block | Purpose |
+|-------|-------|---------|
+| `msys2-apiss/msys2-apiss-sync` | Block 2 | [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml) dispatches `mirror-sync` on mirror repos (`GH_TOKEN`) |
+| `msys2-apiss/MSYS2-packages`, `MINGW-packages` | Block 3 | `mirror-sync.yml` notify step sends `repository_dispatch` to Block 4 |
+
+Package mirrors **`MSYS2-packages`** and **`MINGW-packages`** need the secret on
+the mirror repo (`Notify.Enabled: true`). The tooling repo needs the same PAT
+so CI mirror-poll can trigger Block 3 when tips differ.
 
 1. **Create a PAT** ([fine-grained](https://github.com/settings/personal-access-tokens/new) recommended, or [classic](https://github.com/settings/tokens/new)):
    - **Fine-grained:** resource owner = `msys2-apiss`; repository access =
-     `MSYS2-packages` and `MINGW-packages`; permissions: **Contents** Read and
-     write, **Workflows** Read and write, **Metadata** Read-only.
+     `MSYS2-packages`, `MINGW-packages`, and `msys2-apiss-sync`; permissions:
+     **Contents** Read and write, **Workflows** Read and write, **Metadata**
+     Read-only.
    - **Classic:** scopes **`repo`**, **`workflow`**.
-2. **Add the secret on each package mirror**:
+2. **Add the secret on each package mirror** and on the tooling repo (Block 2
+   [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml) uses the same PAT to
+   dispatch `mirror-sync` on mirror repos):
 
 ```bash
 gh secret set SYNC_DISPATCH_TOKEN --repo msys2-apiss/MSYS2-packages
 gh secret set SYNC_DISPATCH_TOKEN --repo msys2-apiss/MINGW-packages
+gh secret set SYNC_DISPATCH_TOKEN --repo msys2-apiss/msys2-apiss-sync
 ```
 
 Mirror-only repos (`aports`, `glibc`, `gcc`, etc.) do not need this secret;
@@ -158,8 +170,9 @@ local `msys2-apiss-sync` differs from `origin/msys2-apiss-sync`. Requires push a
 mirror repos.
 
 `yarn mirror-poll` and `yarn fetch-mirrors --push` dispatch `mirror-sync` and
-restore the mirror default branch via `gh` (`gh auth login` locally; `GH_TOKEN` in
-CI). No secrets on this repo.
+restore the mirror default branch via `gh` (`gh auth login` locally; in CI
+[`mirror-poll.yml`](../.github/workflows/mirror-poll.yml) uses `SYNC_DISPATCH_TOKEN`
+when set).
 
 ### Full sync (retrieve, merge, replay, push)
 

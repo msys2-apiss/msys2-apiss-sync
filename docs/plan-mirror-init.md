@@ -233,6 +233,7 @@ in-progress run skip, default-branch dance for first dispatch.
 | Block 3 workflow on each mirror repo's `msys2-apiss-mirror-sync` branch | **Keep** (installed by Block 1) |
 | `ghDispatchMirrorSyncWorkflow`, workflow registration helpers | **Keep** (Block 2 -> Block 3) |
 | Mirror repo secrets | **Keep** `SYNC_DISPATCH_TOKEN`, `MIRROR_PUSH_SSH_KEY` for Block 3 |
+| Tooling repo secret | **Keep** `SYNC_DISPATCH_TOKEN` on `msys2-apiss-sync` for Block 2 [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml) |
 | [`mirror-merge.yml`](../config/mirror-template/mirror-merge.yml) on tooling branch **`msys2-apiss-mirror-merge`** | **Keep** (Block 4 CI; installed by Block 1) |
 | [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml) on tooling `main` | **Keep** (Block 2) |
 
