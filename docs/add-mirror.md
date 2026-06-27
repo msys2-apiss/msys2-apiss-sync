@@ -104,9 +104,7 @@ Register the repo name in `config/mirror-poll.json` `Repos`:
     "MSYS2-packages",
     "MINGW-packages",
     "my-tool"
-  ],
-  "PollIntervalMinutes": 60,
-  "DailyReconciliationCron": "0 3 * * *"
+  ]
 }
 ```
 

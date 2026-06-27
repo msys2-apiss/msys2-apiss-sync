@@ -143,8 +143,6 @@ From [`config/mirror-merge.json`](../config/mirror-merge.json):
 | `Destination.*` | Target repo, base commit, branch names (`ReplayTip`: `upstream`) |
 | `Sources[]` | Mirror repo names, dest subdirs, cursor branches, commit message template |
 | `Replay.*` | Age gate, empty-tree skip, line endings |
-| `config/mirror-poll.json` `PollIntervalMinutes` | Local tolerance poll interval (minutes) |
-| `config/mirror-poll.json` `DailyReconciliationCron` | Local daily gap-check schedule |
 
 `Sources[].Repo` names must match mirrors maintained by Block 1.
 `Sources[].CursorBranch` values must match the cursor branch table above.

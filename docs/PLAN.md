@@ -641,9 +641,7 @@ Edit in git only when values change (rare).
     "MSYS2-packages",
     "MINGW-packages",
     "mingw-w64"
-  ],
-  "PollIntervalMinutes": 60,
-  "DailyReconciliationCron": "0 3 * * *"
+  ]
 }
 ```
 
@@ -658,8 +656,6 @@ Edit in git only when values change (rare).
 | Key (`config/mirror-poll.json`) | Purpose |
 |-----|---------|
 | `Repos` | Polled mirror repo list for Block 2 and Block 1 init |
-| `PollIntervalMinutes` | Hourly tolerance poll (60 -> cron `0 * * * *`) |
-| `DailyReconciliationCron` | Daily gap-check schedule |
 | `config/mirror-sync/*.json` | Per-mirror upstream URL, branches, notify, description, homepage URL |
 
 Mirror repos use branch **`msys2-apiss-mirror-sync`** for optional `.github/mirror-sync.json`
@@ -766,7 +762,6 @@ Split across two plans (do not duplicate here):
 - All sync constants in committed `config/mirror-merge.json` only (see Phase 1a key table)
 - Cursors and interrupted-run state: three destination branch tips only (no checkpoint file); see **Interrupted-run state** above
 - Bootstrap: implicit when branches missing; `--clean` to reset
-- Poll tolerance: `PollIntervalMinutes` in config/mirror-poll.json
 - Runtime: Node.js 26+, TypeScript (native type stripping), vitest
 
 ### Phase 2 workflow

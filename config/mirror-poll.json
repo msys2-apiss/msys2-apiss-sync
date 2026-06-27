@@ -10,7 +10,5 @@
     "enscript",
     "aports",
     "musl"
-  ],
-  "PollIntervalMinutes": 60,
-  "DailyReconciliationCron": "0 3 * * *"
+  ]
 }

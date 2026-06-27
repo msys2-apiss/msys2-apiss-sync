@@ -17,8 +17,6 @@ export interface SyncConfig {
 
 export interface MirrorPollConfig {
   Repos: string[];
-  PollIntervalMinutes: number;
-  DailyReconciliationCron: string;
 }
 
 export { MIRROR_MERGE_BRANCH, MIRROR_SYNC_BRANCH } from '../types/constants.ts';
