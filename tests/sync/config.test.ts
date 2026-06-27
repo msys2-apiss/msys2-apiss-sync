@@ -22,6 +22,7 @@ describe('getMirrorPollRepoNames', () => {
       'gcc',
       'enscript',
       'aports',
+      'apk-tools',
       'musl',
       'uclibc-ng'
     ]);
