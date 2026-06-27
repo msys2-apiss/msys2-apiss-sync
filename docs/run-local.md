@@ -1,6 +1,7 @@
 # Run locally (testing)
 
-Operational sync (push, resume, bootstrap): [`usage.md`](usage.md).
+Operational sync (push, resume, bootstrap): [`usage.md`](usage.md). Mirror tooling branch
+layout: [`mirror-init.md` -- Tooling branch layout](mirror-init.md#tooling-branch-layout).
 
 Requires **Node.js 26+**, **Yarn**, **git**, and network when fetching mirrors.
 

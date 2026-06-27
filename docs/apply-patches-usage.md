@@ -63,7 +63,8 @@ Example path rewrite:
 
 ## Fetch mirrors
 
-Clone or update both mirror repos before applying patches:
+Clone or update both mirror repos before applying patches (working copies use
+**`msys2-apiss-mirror-sync`** layout; see [Tooling branch layout](mirror-init.md#tooling-branch-layout):
 
 ```bash
 yarn fetch-mirrors

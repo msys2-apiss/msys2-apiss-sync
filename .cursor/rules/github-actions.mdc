@@ -13,7 +13,7 @@ Full copy-paste steps: [`docs/usage.md`](../docs/usage.md).
 | File | Purpose |
 |------|---------|
 | `mirror-poll.yml` | Push/cron (~hourly)/manual: runs `yarn mirror-poll` (dispatch when HEAD != upstream) |
-| `config/mirror-template/mirror-merge.yml` (installed as `.github/workflows/mirror-merge.yml` on branch `msys2-apiss-mirror-merge`) | `repository_dispatch`, manual (`clean=true`) |
+| `config/mirror-template/mirror-merge.yml` (installed on **`msys2-apiss/msys2-apiss`**, branch `msys2-apiss-mirror-merge`; [Tooling branch layout](../docs/mirror-init.md#tooling-branch-layout)) | `repository_dispatch`, manual (`clean=true`) |
 
 Dry-run manifest verification: run locally (`yarn mirror-merge --dry-run --skip-fetch`); see
 [`docs/run-local.md`](../docs/run-local.md).
@@ -27,12 +27,13 @@ Dry-run manifest verification: run locally (`yarn mirror-merge --dry-run --skip-
 | `msys2-apiss/mingw-w64` | [SourceForge mingw-w64](https://git.code.sf.net/p/mingw-w64/mingw-w64) | no (mirror-only) |
 | `msys2-apiss/glibc` | [sourceware glibc](https://sourceware.org/git/glibc.git) | no (mirror-only) |
 
-Branch layout: **`msys2-apiss-sync`** holds workflow and config; **`master`** is a pure
-fast-forward copy of upstream (no workflow commits on master).
+Branch layout: **`msys2-apiss-mirror-sync`** holds workflow and config; **`master`** is a pure
+fast-forward copy of upstream (no workflow commits on master). See
+[Tooling branch layout](../docs/mirror-init.md#tooling-branch-layout).
 
 Template: `config/mirror-template/mirror-sync.yml`. Per-repo JSON:
-`config/mirror-sync/<repo-name>.json` (applied to `sync/.github/mirror-sync.json`
-by `yarn fetch-mirrors`).
+`config/mirror-sync/<repo-name>.json` (applied by `yarn mirror-init` on
+**`msys2-apiss-mirror-sync`**; [Tooling branch layout](../docs/mirror-init.md#tooling-branch-layout)).
 
 ## Runner
 

@@ -12,7 +12,7 @@ All architecture, phases, and implementation design live in committed repo files
 - **Center design:** [`docs/plan-workflow.md`](docs/plan-workflow.md) (target workflow by block; edit first for repo/block/CI changes)
 - **Index:** [`docs/PLAN.md`](docs/PLAN.md) (shared replay foundation + links)
 - **Mirror-merge:** [`docs/plan-sync-merge.md`](docs/plan-sync-merge.md) (`msys2-apiss` destination, Block 4 `yarn mirror-merge`)
-- **Mirror-init:** [`docs/mirror-init.md`](docs/mirror-init.md) (Block 1: `yarn mirror-init`)
+- **Mirror-init:** [`docs/mirror-init.md`](docs/mirror-init.md) (Block 1: `yarn mirror-init`; [Tooling branch layout](docs/mirror-init.md#tooling-branch-layout))
 
 Edit the plan file that matches the area you are changing. Do not create other
 parallel plan files unless the user explicitly asks.

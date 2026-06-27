@@ -1,6 +1,7 @@
 name: Mirror merge
 
 # Install on destination repo branch msys2-apiss-mirror-merge (workflows live here, not on upstream*).
+# Layout: docs/mirror-init.md#tooling-branch-layout
 # Copy this file to: msys2-apiss-mirror-merge/.github/workflows/mirror-merge.yml
 #   (from config/mirror-template/mirror-merge.yml in msys2-apiss-sync; applied by yarn mirror-init)
 #

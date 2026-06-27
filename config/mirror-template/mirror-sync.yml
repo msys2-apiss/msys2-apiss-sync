@@ -1,6 +1,7 @@
 name: Mirror sync from upstream
 
 # Install on mirror repo branch msys2-apiss-mirror-sync (workflows live here, not on master).
+# Layout: docs/mirror-init.md#tooling-branch-layout
 # Copy this file to: .github/workflows/mirror-sync.yml on that branch
 # Copy a per-repo config to: .github/mirror-sync.json
 #   (from config/mirror-sync/<repo-name>.json in msys2-apiss-sync; applied by yarn mirror-init)

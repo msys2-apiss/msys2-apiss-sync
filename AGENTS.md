@@ -8,7 +8,7 @@ MSYS2 package history into `msys2-apiss/msys2-apiss`.
 - [docs/plan-workflow.md](docs/plan-workflow.md) - center design (target workflow by block)
 - [docs/PLAN.md](docs/PLAN.md) - index and shared replay foundation
 - [docs/plan-sync-merge.md](docs/plan-sync-merge.md) - mirror-merge Block 4 (`yarn mirror-merge`)
-- [docs/mirror-init.md](docs/mirror-init.md) - Block 1 (`yarn mirror-init`)
+- [docs/mirror-init.md](docs/mirror-init.md) - Block 1 (`yarn mirror-init`; [Tooling branch layout](docs/mirror-init.md#tooling-branch-layout))
 - [.cursor/rules/](.cursor/rules/) - coding and workflow conventions
 
 ## Key facts
@@ -20,6 +20,7 @@ MSYS2 package history into `msys2-apiss/msys2-apiss`.
 - **Triggers**: Block 2 mirror-poll (~hourly cron, push to `main`); Block 3 -> Block 4 `repository_dispatch` after mirrors advance. Plan ~1 h latency; manual `workflow_dispatch` fallback.
 - **Runtime**: Node.js 26+; TypeScript runs directly with Node type stripping
 - **State**: destination branches (`upstream`, `upstream-ports`, `upstream-ports-mingw`) hold replay progress and resume cursors; no checkpoint file
+- **Tooling branches**: Block 1 install branches **`msys2-apiss-mirror-sync`** and **`msys2-apiss-mirror-merge`** follow [Tooling branch layout](docs/mirror-init.md#tooling-branch-layout)
 
 ## Do not
 

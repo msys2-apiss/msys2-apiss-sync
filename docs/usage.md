@@ -6,13 +6,14 @@ Pipeline: `msys2/*` upstream -> `msys2-apiss/*` mirrors -> `msys2-apiss/msys2-ap
 on branches `upstream`, `upstream-ports`, `upstream-ports-mingw`.
 
 Local testing and debugging: [`run-local.md`](run-local.md). Design and flags:
-[`PLAN.md`](PLAN.md). Block 1: [`mirror-init.md`](mirror-init.md).
+[`PLAN.md`](PLAN.md). Block 1: [`mirror-init.md`](mirror-init.md) ([Tooling branch layout](mirror-init.md#tooling-branch-layout)).
 
 ## GitHub (`gh`)
 
 Pushing to `main` on this repo runs [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml)
 automatically. Block 4 CI is [`mirror-merge.yml`](../config/mirror-template/mirror-merge.yml)
-on branch `msys2-apiss-mirror-merge` (installed by `yarn mirror-init`).
+on destination repo **`msys2-apiss/msys2-apiss`**, branch **`msys2-apiss-mirror-merge`**
+(installed by `yarn mirror-init`; [Tooling branch layout](mirror-init.md#tooling-branch-layout)).
 
 Requires the [GitHub CLI](https://cli.github.com/) (`gh auth login`) with access to
 `msys2-apiss`. Local commands use **git** and **gh** only; no env secrets.
@@ -86,22 +87,22 @@ SSH is used only for `git push` on repos with `PushViaSsh` true.
 
 ### 1. Refresh mirrors from upstream
 
-Mirrors auto-refresh about hourly via [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml) on this repo (`PollIntervalMinutes`: 60; GitHub cron is best-effort). Mirror-poll skips dispatch when each mirror content branch already matches upstream. Manual trigger on branch `msys2-apiss-mirror-sync` (workflows live there, not on `master`):
+Mirrors auto-refresh about hourly via [`mirror-poll.yml`](../.github/workflows/mirror-poll.yml) on this repo (`PollIntervalMinutes`: 60; GitHub cron is best-effort). Mirror-poll skips dispatch when each mirror content branch already matches upstream. Manual trigger on branch `msys2-apiss-mirror-sync` (workflows live there, not on `master`; [Tooling branch layout](mirror-init.md#tooling-branch-layout)):
 
 ```bash
-gh workflow run mirror-sync.yml --repo msys2-apiss/MSYS2-packages --ref msys2-apiss-sync
-gh workflow run mirror-sync.yml --repo msys2-apiss/MINGW-packages --ref msys2-apiss-sync
-gh workflow run mirror-sync.yml --repo msys2-apiss/mingw-w64 --ref msys2-apiss-sync
-gh workflow run mirror-sync.yml --repo msys2-apiss/glibc --ref msys2-apiss-sync
-gh workflow run mirror-sync.yml --repo msys2-apiss/enscript --ref msys2-apiss-sync
-gh workflow run mirror-sync.yml --repo msys2-apiss/gcc --ref msys2-apiss-sync
+gh workflow run mirror-sync.yml --repo msys2-apiss/MSYS2-packages --ref msys2-apiss-mirror-sync
+gh workflow run mirror-sync.yml --repo msys2-apiss/MINGW-packages --ref msys2-apiss-mirror-sync
+gh workflow run mirror-sync.yml --repo msys2-apiss/mingw-w64 --ref msys2-apiss-mirror-sync
+gh workflow run mirror-sync.yml --repo msys2-apiss/glibc --ref msys2-apiss-mirror-sync
+gh workflow run mirror-sync.yml --repo msys2-apiss/enscript --ref msys2-apiss-mirror-sync
+gh workflow run mirror-sync.yml --repo msys2-apiss/gcc --ref msys2-apiss-mirror-sync
 ```
 
 Each mirror repo uses the same workflow template
 [`config/mirror-template/mirror-sync.yml`](../config/mirror-template/mirror-sync.yml).
 Per-repo settings come from [`config/mirror-sync/`](../config/mirror-sync/) and are
-applied to `.github/mirror-sync.json` on branch `msys2-apiss-sync` by `yarn fetch-mirrors` when
-templates differ or the branch layout is invalid.
+applied to `.github/mirror-sync.json` on branch `msys2-apiss-mirror-sync` by `yarn mirror-init` when
+templates differ or the branch layout is invalid ([Tooling branch layout](mirror-init.md#tooling-branch-layout)).
 Package mirrors notify `msys2-apiss-sync` when `Notify.Enabled` is true; mirror-only repos
 (`mingw-w64`, `glibc`) set `Notify.Enabled` to false.
 
@@ -126,14 +127,14 @@ Usually automatic after step 2. Trigger manually when mirrors are already curren
 or dispatch did not run:
 
 ```bash
-gh workflow run mirror-merge.yml --repo msys2-apiss/msys2-apiss-sync --ref msys2-apiss-mirror-merge
+gh workflow run mirror-merge.yml --repo msys2-apiss/msys2-apiss --ref msys2-apiss-mirror-merge
 gh run watch --repo msys2-apiss/msys2-apiss-sync
 ```
 
 ### 4. Verify CI run
 
 ```bash
-gh run list --repo msys2-apiss/msys2-apiss-sync --workflow mirror-merge.yml --ref msys2-apiss-mirror-merge --limit 5
+gh run list --repo msys2-apiss/msys2-apiss --workflow mirror-merge.yml --ref msys2-apiss-mirror-merge --limit 5
 ```
 
 Check destination branch tips on `msys2-apiss/msys2-apiss` (`upstream`,
@@ -147,7 +148,7 @@ run locally: [`run-local.md`](run-local.md#verify-replay-manifest).
 | Goal | Command |
 |------|---------|
 | Resume after failure | Repeat step 3 (incremental from branch cursors) |
-| Reset branches, full replay | `gh workflow run mirror-merge.yml --repo msys2-apiss/msys2-apiss-sync --ref msys2-apiss-mirror-merge -f clean=true` |
+| Reset branches, full replay | `gh workflow run mirror-merge.yml --repo msys2-apiss/msys2-apiss --ref msys2-apiss-mirror-merge -f clean=true` |
 
 ## Local machine
 

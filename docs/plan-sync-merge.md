@@ -10,7 +10,7 @@ and [msys2-apiss/MINGW-packages](https://github.com/msys2-apiss/MINGW-packages) 
 
 **All tooling code lives in this repo** (`msys2-apiss-sync`). Sync orchestrates **git
 subprocesses only** (no libgit2, no destination-repo workflows). Mirror refresh
-(Blocks 1-3) is in [`mirror-init.md`](mirror-init.md) (Block 1) and
+(Blocks 1-3) is in [`mirror-init.md`](mirror-init.md#tooling-branch-layout) (Block 1) and
 [`plan-workflow.md`](plan-workflow.md) (Blocks 2-3).
 
 Ops: [`usage.md`](usage.md). Local testing: [`run-local.md`](run-local.md).
@@ -25,7 +25,7 @@ repo/block/CI changes.
 | In scope | Out of scope |
 |----------|----------------|
 | `yarn mirror-merge` / `src/cli/sync-upstream.ts` (Block 4 local) | Cloning or updating mirror repos (Block 1) |
-| [`mirror-merge.yml`](../config/mirror-template/mirror-merge.yml) on tooling branch **`msys2-apiss-mirror-merge`** (Block 4 CI; installed by Block 1) | Block 2 poll; Block 3 mirror-sync |
+| [`mirror-merge.yml`](../config/mirror-template/mirror-merge.yml) on destination branch **`msys2-apiss-mirror-merge`** on **`msys2-apiss/msys2-apiss`** (Block 4 CI; installed by Block 1; [Tooling branch layout](mirror-init.md#tooling-branch-layout)) | Block 2 poll; Block 3 mirror-sync |
 | Destination branches on `msys2-apiss/msys2-apiss` | Workflows on destination repo |
 | Retrieve, merge-queue, replay | Workflows on mirror content branches |
 | Trigger from Block 3 `workflow_dispatch_mirror_merge` (package mirrors) | |
@@ -38,10 +38,11 @@ repo/block/CI changes.
   TypeScript wraps `git` only (see [`PLAN.md`](PLAN.md) for algorithm).
 - **Block 4 entry points:**
   - **Local:** `yarn mirror-merge` from tooling checkout
-  - **CI:** [`mirror-merge.yml`](../config/mirror-template/mirror-merge.yml) on tooling repo
-    branch **`msys2-apiss-mirror-merge`** (installed by Block 1); triggered by Block 3
+  - **CI:** [`mirror-merge.yml`](../config/mirror-template/mirror-merge.yml) on destination repo
+    **`msys2-apiss/msys2-apiss`**, branch **`msys2-apiss-mirror-merge`** (installed by Block 1;
+    [Tooling branch layout](mirror-init.md#tooling-branch-layout)); triggered by Block 3
     `workflow_dispatch_mirror_merge`, cron, or manual dispatch
-- **Block 3 handoff:** package mirrors dispatch tooling repo after mirror `master` advances
+- **Block 3 handoff:** package mirrors dispatch destination repo after mirror `master` advances
 
 ---
 
@@ -77,7 +78,7 @@ Tests: `tests/sync/resume.test.ts`, `tests/sync/cursor-branch.test.ts`.
 [`src/cli/sync-upstream.ts`](../src/cli/sync-upstream.ts) -- `yarn mirror-merge` (Block 4 local).
 
 CI: [`mirror-merge.yml`](../config/mirror-template/mirror-merge.yml) on branch
-**`msys2-apiss-mirror-merge`** -- same CLI, runs on GitHub Actions.
+**`msys2-apiss-mirror-merge`** ([Tooling branch layout](mirror-init.md#tooling-branch-layout)) -- same CLI, runs on GitHub Actions.
 
 | Flag | Purpose |
 |------|---------|
@@ -128,7 +129,7 @@ Repo/block/CI map and operator flows: [`plan-workflow.md`](plan-workflow.md).
 | Task | Command |
 |------|---------|
 | Block 4 local | `yarn mirror-merge [--skip-fetch]` |
-| Block 4 CI (after Block 3 dispatch) | `gh workflow run mirror-merge.yml --repo msys2-apiss/msys2-apiss-sync --ref msys2-apiss-mirror-merge` |
+| Block 4 CI (after Block 3 dispatch) | `gh workflow run mirror-merge.yml --repo msys2-apiss/msys2-apiss --ref msys2-apiss-mirror-merge` |
 | Reset replay | `yarn mirror-merge --clean` or CI `clean=true` |
 
 ---
