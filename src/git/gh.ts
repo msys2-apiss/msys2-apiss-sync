@@ -282,8 +282,20 @@ export function ghDispatchMirrorBlock(
       return;
     }
 
+    const newMirrorHint = spec.Block === 'mirror-sync' ? ' (normal for new mirrors)' : '';
     logger.write(
-      `${repoName}: ${spec.WorkflowFile} not registered yet; dispatch skipped (re-run mirror-init --push or gh workflow run later)`,
+      `${repoName}: ${spec.WorkflowFile} not in GitHub Actions registry yet; dispatch skipped${newMirrorHint}`,
+      'Warn'
+    );
+    logger.write('  Wait a few minutes, then retry:', 'Warn');
+    if (spec.Block === 'mirror-sync') {
+      logger.write(`    yarn mirror-init --push --repo ${repoName} --skip-fetch`, 'Warn');
+    } else if (spec.Block === 'mirror-merge' || spec.Block === 'mirror-poll') {
+      logger.write('    yarn mirror-init --push', 'Warn');
+    }
+    const workflowInputs = spec.WorkflowInputs.map(([key, value]) => `-f ${key}=${value}`).join(' ');
+    logger.write(
+      `    gh workflow run ${spec.WorkflowFile} --repo ${owner}/${repoName} --ref ${spec.ToolingBranch}${workflowInputs ? ` ${workflowInputs}` : ''}`,
       'Warn'
     );
   } finally {
