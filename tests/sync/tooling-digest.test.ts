@@ -6,7 +6,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { Logger } from '../../src/git/log.ts';
 import {
-  computeConfigTreeDigest,
+  computeRepoToolingDigest,
   loadDigestMap,
   pinRepoDigest,
   repoNeedsBootstrap,
@@ -14,48 +14,173 @@ import {
 } from '../../src/lib/tooling-digest.ts';
 import { TOOLING_DIGEST_PATH } from '../../src/types/constants.ts';
 
-function writeConfigTree(root: string, files: Record<string, string>): void {
-  for (const [rel, content] of Object.entries(files)) {
-    const path = join(root, 'config', rel);
-    mkdirSync(join(path, '..'), { recursive: true });
-    writeFileSync(path, content, 'utf8');
+function writeDigestInputs(
+  root: string,
+  input: {
+    mirrorSyncYml?: string;
+    mirrorMergeYml?: string;
+    mirrorMergeJson?: string;
+    mirrorSyncJson?: Record<string, string>;
+    toolings?: Record<string, string>;
+    mirrorPollJson?: string;
+  }
+): void {
+  mkdirSync(join(root, 'config', 'mirror-template', 'toolings'), { recursive: true });
+  mkdirSync(join(root, 'config', 'mirror-sync'), { recursive: true });
+
+  writeFileSync(
+    join(root, 'config/mirror-template/mirror-sync.yml'),
+    input.mirrorSyncYml ?? 'name: sync\n',
+    'utf8'
+  );
+  writeFileSync(
+    join(root, 'config/mirror-template/mirror-merge.yml'),
+    input.mirrorMergeYml ?? 'name: merge\n',
+    'utf8'
+  );
+  writeFileSync(
+    join(root, 'config/mirror-merge.json'),
+    input.mirrorMergeJson ?? '{}\n',
+    'utf8'
+  );
+
+  for (const [repo, content] of Object.entries(input.mirrorSyncJson ?? {})) {
+    writeFileSync(join(root, 'config/mirror-sync', `${repo}.json`), content, 'utf8');
+  }
+
+  for (const [name, content] of Object.entries(input.toolings ?? {})) {
+    writeFileSync(join(root, 'config/mirror-template/toolings', name), content, 'utf8');
+  }
+
+  if (input.mirrorPollJson !== undefined) {
+    writeFileSync(join(root, 'config/mirror-poll.json'), input.mirrorPollJson, 'utf8');
   }
 }
 
-describe('computeConfigTreeDigest', () => {
-  test('hashes sorted paths with null separator and excludes digest.json', () => {
+function expectedDigest(root: string, paths: string[]): string {
+  const hash = createHash('sha256');
+  for (const rel of [...paths].sort()) {
+    hash.update(rel);
+    hash.update('\0');
+    hash.update(readFileSync(join(root, rel)));
+  }
+  return hash.digest('hex');
+}
+
+describe('computeRepoToolingDigest', () => {
+  test('hashes sorted paths with null separator for mirror inputs', () => {
     const root = mkdtempSync(join(tmpdir(), 'msys2-apiss-sync-digest-'));
     try {
-      writeConfigTree(root, {
-        'b.txt': 'two',
-        'a/nested.txt': 'one'
+      writeDigestInputs(root, {
+        mirrorSyncJson: { elfutils: '{"UpstreamUrl":"https://example.com/up.git"}\n' },
+        toolings: { 'mirror-sync.mjs': 'export {}\n' }
       });
-      writeFileSync(join(root, 'config', 'digest.json'), '{"ignored":true}\n', 'utf8');
 
-      const expected = createHash('sha256');
-      expected.update('a/nested.txt');
-      expected.update('\0');
-      expected.update('one');
-      expected.update('b.txt');
-      expected.update('\0');
-      expected.update('two');
-
-      expect(computeConfigTreeDigest(root)).toBe(expected.digest('hex'));
+      const paths = [
+        'config/mirror-sync/elfutils.json',
+        'config/mirror-template/mirror-sync.yml',
+        'config/mirror-template/toolings/mirror-sync.mjs'
+      ];
+      expect(computeRepoToolingDigest(root, 'elfutils', 'mirror')).toBe(expectedDigest(root, paths));
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test('order is stable regardless of write order', () => {
-    const rootA = mkdtempSync(join(tmpdir(), 'msys2-apiss-sync-digest-a-'));
-    const rootB = mkdtempSync(join(tmpdir(), 'msys2-apiss-sync-digest-b-'));
+  test('hashes destination workflow, merge config, and toolings', () => {
+    const root = mkdtempSync(join(tmpdir(), 'msys2-apiss-sync-digest-dest-'));
     try {
-      writeConfigTree(rootA, { 'z.txt': 'z', 'a.txt': 'a' });
-      writeConfigTree(rootB, { 'a.txt': 'a', 'z.txt': 'z' });
-      expect(computeConfigTreeDigest(rootA)).toBe(computeConfigTreeDigest(rootB));
+      writeDigestInputs(root, {
+        toolings: { 'mirror-merge.mjs': 'export {}\n' }
+      });
+
+      const paths = [
+        'config/mirror-merge.json',
+        'config/mirror-template/mirror-merge.yml',
+        'config/mirror-template/toolings/mirror-merge.mjs'
+      ];
+      expect(computeRepoToolingDigest(root, 'msys2-apiss', 'destination')).toBe(
+        expectedDigest(root, paths)
+      );
     } finally {
-      rmSync(rootA, { recursive: true, force: true });
-      rmSync(rootB, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('mirror JSON change affects one repo only', () => {
+    const root = mkdtempSync(join(tmpdir(), 'msys2-apiss-sync-digest-mirror-only-'));
+    try {
+      writeDigestInputs(root, {
+        mirrorSyncJson: {
+          a: '{"UpstreamUrl":"https://example.com/a.git"}\n',
+          b: '{"UpstreamUrl":"https://example.com/b.git"}\n'
+        }
+      });
+
+      const digestA = computeRepoToolingDigest(root, 'a', 'mirror');
+      const digestB = computeRepoToolingDigest(root, 'b', 'mirror');
+      expect(digestA).not.toBe(digestB);
+
+      writeFileSync(
+        join(root, 'config/mirror-sync/b.json'),
+        '{"UpstreamUrl":"https://example.com/changed.git"}\n',
+        'utf8'
+      );
+      expect(computeRepoToolingDigest(root, 'a', 'mirror')).toBe(digestA);
+      expect(computeRepoToolingDigest(root, 'b', 'mirror')).not.toBe(digestB);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('shared template or tooling change affects all repos', () => {
+    const root = mkdtempSync(join(tmpdir(), 'msys2-apiss-sync-digest-shared-'));
+    try {
+      writeDigestInputs(root, {
+        mirrorSyncJson: { a: '{"UpstreamUrl":"https://example.com/a.git"}\n' }
+      });
+
+      const mirrorBefore = computeRepoToolingDigest(root, 'a', 'mirror');
+      const destBefore = computeRepoToolingDigest(root, 'msys2-apiss', 'destination');
+
+      writeFileSync(
+        join(root, 'config/mirror-template/mirror-sync.yml'),
+        'name: sync-changed\n',
+        'utf8'
+      );
+
+      expect(computeRepoToolingDigest(root, 'a', 'mirror')).not.toBe(mirrorBefore);
+      expect(computeRepoToolingDigest(root, 'msys2-apiss', 'destination')).toBe(destBefore);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('ignores mirror-poll.json and digest.json', () => {
+    const root = mkdtempSync(join(tmpdir(), 'msys2-apiss-sync-digest-ignore-'));
+    try {
+      writeDigestInputs(root, {
+        mirrorSyncJson: { a: '{"UpstreamUrl":"https://example.com/a.git"}\n' }
+      });
+
+      const before = computeRepoToolingDigest(root, 'a', 'mirror');
+      writeFileSync(join(root, 'config/mirror-poll.json'), '{"Owner":"changed"}\n', 'utf8');
+      writeFileSync(join(root, 'config/digest.json'), '{"a":"deadbeef"}\n', 'utf8');
+      expect(computeRepoToolingDigest(root, 'a', 'mirror')).toBe(before);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('throws when required mirror config is missing', () => {
+    const root = mkdtempSync(join(tmpdir(), 'msys2-apiss-sync-digest-missing-'));
+    try {
+      writeDigestInputs(root, {});
+      expect(() => computeRepoToolingDigest(root, 'missing', 'mirror')).toThrow(
+        'Missing digest input file: config/mirror-sync/missing.json'
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

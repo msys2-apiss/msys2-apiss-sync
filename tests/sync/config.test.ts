@@ -26,7 +26,8 @@ describe('getMirrorPollRepoNames', () => {
       'apk-tools',
       'abuild',
       'musl',
-      'uclibc-ng'
+      'uclibc-ng',
+      'muon'
     ]);
   });
 

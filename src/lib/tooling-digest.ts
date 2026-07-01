@@ -1,48 +1,75 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
 
 import type { Logger } from '../git/log.ts';
-import { TOOLING_DIGEST_PATH } from '../types/constants.ts';
+import {
+  MIRROR_MERGE_CONFIG_PATH,
+  MIRROR_SYNC_CONFIG_DIR,
+  MIRROR_TEMPLATE_DIR,
+  MIRROR_TOOLINGS_TEMPLATE_DIR,
+  TOOLING_DIGEST_PATH
+} from '../types/constants.ts';
 
-const CONFIG_DIR = 'config';
-const DIGEST_FILE_NAME = 'digest.json';
+export type RepoToolingKind = 'destination' | 'mirror';
 
-function listConfigFiles(configRoot: string): string[] {
+const MIRROR_SYNC_WORKFLOW = `${MIRROR_TEMPLATE_DIR}/mirror-sync.yml`;
+const MIRROR_MERGE_WORKFLOW = `${MIRROR_TEMPLATE_DIR}/mirror-merge.yml`;
+
+function listFilesUnderDir(absDir: string, relPrefix: string): string[] {
+  if (!existsSync(absDir)) {
+    return [];
+  }
   const files: string[] = [];
 
-  function walk(dir: string): void {
+  function walk(dir: string, prefix: string): void {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name);
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
-        walk(full);
+        walk(full, rel);
       } else if (entry.isFile()) {
-        const rel = relative(configRoot, full).replace(/\\/g, '/');
-        if (rel === DIGEST_FILE_NAME) {
-          continue;
-        }
-        files.push(rel);
+        files.push(`${relPrefix}/${rel}`.replace(/\\/g, '/'));
       }
     }
   }
 
-  walk(configRoot);
-  files.sort();
+  walk(absDir, '');
   return files;
 }
 
-export function computeConfigTreeDigest(repoRoot: string): string {
-  const configRoot = join(repoRoot, CONFIG_DIR);
-  if (!existsSync(configRoot)) {
-    throw new Error(`Missing ${CONFIG_DIR}/ directory under repo root`);
-  }
+function hashFilePaths(repoRoot: string, paths: string[]): string {
+  const sorted = [...paths].sort();
   const hash = createHash('sha256');
-  for (const rel of listConfigFiles(configRoot)) {
+  for (const rel of sorted) {
+    const abs = join(repoRoot, rel);
+    if (!existsSync(abs)) {
+      throw new Error(`Missing digest input file: ${rel}`);
+    }
     hash.update(rel);
     hash.update('\0');
-    hash.update(readFileSync(join(configRoot, rel)));
+    hash.update(readFileSync(abs));
   }
   return hash.digest('hex');
+}
+
+export function computeRepoToolingDigest(
+  repoRoot: string,
+  repo: string,
+  kind: RepoToolingKind
+): string {
+  const paths: string[] = listFilesUnderDir(
+    join(repoRoot, MIRROR_TOOLINGS_TEMPLATE_DIR),
+    MIRROR_TOOLINGS_TEMPLATE_DIR
+  );
+
+  if (kind === 'destination') {
+    paths.push(MIRROR_MERGE_WORKFLOW, MIRROR_MERGE_CONFIG_PATH);
+  } else {
+    paths.push(MIRROR_SYNC_WORKFLOW, `${MIRROR_SYNC_CONFIG_DIR}/${repo}.json`);
+  }
+
+  return hashFilePaths(repoRoot, paths);
 }
 
 export function loadDigestMap(repoRoot: string, logger?: Logger): Record<string, string> {

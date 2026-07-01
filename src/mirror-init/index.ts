@@ -28,7 +28,7 @@ import {
 import { runGitText } from '../git/index.ts';
 import type { Logger } from '../git/log.ts';
 import {
-  computeConfigTreeDigest,
+  computeRepoToolingDigest,
   loadDigestMap,
   pinRepoDigest,
   repoNeedsBootstrap,
@@ -120,7 +120,6 @@ export async function runMirrorInit(input: {
     requireGhAuthenticated();
   }
 
-  const currentDigest = computeConfigTreeDigest(repoRoot);
   const digestMap = loadDigestMap(repoRoot, logger);
   let digestMapDirty = false;
 
@@ -131,9 +130,14 @@ export async function runMirrorInit(input: {
   const mirrorReposInScope = getMirrorPollRepoNames(mirrorPollConfig).filter(
     (repoName) => !input.RepoFilter || input.RepoFilter === repoName
   );
-  const destinationNeedsBootstrap = repoNeedsBootstrap(digestMap, destinationRepo, currentDigest);
+  const destinationDigest = computeRepoToolingDigest(repoRoot, destinationRepo, 'destination');
+  const destinationNeedsBootstrap = repoNeedsBootstrap(digestMap, destinationRepo, destinationDigest);
   const anyMirrorNeedsBootstrap = mirrorReposInScope.some((repoName) =>
-    repoNeedsBootstrap(digestMap, repoName, currentDigest)
+    repoNeedsBootstrap(
+      digestMap,
+      repoName,
+      computeRepoToolingDigest(repoRoot, repoName, 'mirror')
+    )
   );
 
   const allReposPinned = !destinationNeedsBootstrap && !anyMirrorNeedsBootstrap;
@@ -159,7 +163,7 @@ export async function runMirrorInit(input: {
           DefaultBranch: defaultBranch,
           Logger: logger
         });
-        pinRepoDigest(digestMap, destinationRepo, currentDigest);
+        pinRepoDigest(digestMap, destinationRepo, destinationDigest);
         digestMapDirty = true;
       }
       const mergeTip = runGitText(destinationPath, ['rev-parse', MIRROR_MERGE_BRANCH]).trim();
@@ -172,7 +176,8 @@ export async function runMirrorInit(input: {
 
     for (const repoName of mirrorReposInScope) {
       const contentBranch = getMirrorContentBranch(repoRoot, repoName);
-      const mirrorNeedsBootstrap = repoNeedsBootstrap(digestMap, repoName, currentDigest);
+      const mirrorDigest = computeRepoToolingDigest(repoRoot, repoName, 'mirror');
+      const mirrorNeedsBootstrap = repoNeedsBootstrap(digestMap, repoName, mirrorDigest);
       if (!mirrorNeedsBootstrap) {
         logger.write(`${repoName}: config digest pinned; skipping init`);
         continue;
@@ -194,7 +199,7 @@ export async function runMirrorInit(input: {
           Owner: owner,
           Logger: logger
         });
-        pinRepoDigest(digestMap, repoName, currentDigest);
+        pinRepoDigest(digestMap, repoName, mirrorDigest);
         digestMapDirty = true;
       }
       const syncTip = runGitText(mirrorPath, ['rev-parse', MIRROR_SYNC_BRANCH]).trim();

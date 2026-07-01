@@ -47,6 +47,15 @@ Example (bad): move `runPackageList` above `runSinglePackage` because it calls
 Example (good): keep `runPackageList` at the bottom of the file; change only its
 parameter list and loop body.
 
+## Refactor or extract only when it clearly pays off
+
+An extraction or refactor the user did not ask for is worth it only when
+it removes a real duplication (total line count down) or makes the call
+site unambiguously more readable. Before extracting, count
+`helper body + signature + N call sites`; if not clearly less than the
+original, leave it inline. Prefer deleting a duplicate over wrapping it.
+When in doubt, leave the code as is.
+
 ## Do not, unless explicitly requested
 
 - Refactor, rename, or move code.

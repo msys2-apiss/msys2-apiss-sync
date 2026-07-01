@@ -70,11 +70,12 @@ describe('runMirrorInit digest fast path', () => {
 
   test('skips repo init when all targets pinned', async () => {
     writeConfigTree(repoRoot);
-    const { computeConfigTreeDigest } = await import('../../src/lib/tooling-digest.ts');
-    const digest = computeConfigTreeDigest(repoRoot);
+    const { computeRepoToolingDigest } = await import('../../src/lib/tooling-digest.ts');
+    const destDigest = computeRepoToolingDigest(repoRoot, 'dest', 'destination');
+    const mirrorDigest = computeRepoToolingDigest(repoRoot, 'mirror-a', 'mirror');
     writeFileSync(
       join(repoRoot, 'config/digest.json'),
-      `${JSON.stringify({ dest: digest, 'mirror-a': digest })}\n`
+      `${JSON.stringify({ dest: destDigest, 'mirror-a': mirrorDigest })}\n`
     );
 
     vi.resetModules();
@@ -89,12 +90,13 @@ describe('runMirrorInit digest fast path', () => {
 
   test('dispatches mirror-poll when all pinned unless --no-poll', async () => {
     writeConfigTree(repoRoot);
-    const { computeConfigTreeDigest } = await import('../../src/lib/tooling-digest.ts');
+    const { computeRepoToolingDigest } = await import('../../src/lib/tooling-digest.ts');
     const { MIRROR_POLL_BLOCK } = await import('../../src/git/mirror-block-dispatch.ts');
-    const digest = computeConfigTreeDigest(repoRoot);
+    const destDigest = computeRepoToolingDigest(repoRoot, 'dest', 'destination');
+    const mirrorDigest = computeRepoToolingDigest(repoRoot, 'mirror-a', 'mirror');
     writeFileSync(
       join(repoRoot, 'config/digest.json'),
-      `${JSON.stringify({ dest: digest, 'mirror-a': digest })}\n`
+      `${JSON.stringify({ dest: destDigest, 'mirror-a': mirrorDigest })}\n`
     );
 
     vi.resetModules();
